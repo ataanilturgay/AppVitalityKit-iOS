@@ -92,8 +92,7 @@ public class SimpleCrashReporter {
         installSignalHandler(SIGPIPE)
         installSignalHandler(SIGTRAP)
         
-        // 4. Periodically save breadcrumbs to disk (so we have them after crash)
-        saveBreadcrumbsToDiskPeriodically()
+        // Note: Breadcrumbs are saved by BreadcrumbLogger automatically
         
         print("☠️ [SimpleCrashReporter] Crash reporter ready")
     }
@@ -316,31 +315,25 @@ public class SimpleCrashReporter {
         AppVitalityKit.shared.handleCrashSync(report: report)
     }
     
-    // MARK: - Breadcrumbs Persistence
-    
-    private static let breadcrumbsFile = "appvitality_breadcrumbs.txt"
-    
-    private static func saveBreadcrumbsToDiskPeriodically() {
-        // Save breadcrumbs every 5 seconds
-        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-            saveBreadcrumbsToDisk()
-        }
-        // Also save immediately
-        saveBreadcrumbsToDisk()
-    }
-    
-    private static func saveBreadcrumbsToDisk() {
-        guard let dir = crashDirectory else { return }
-        let path = dir.appendingPathComponent(breadcrumbsFile)
-        let content = BreadcrumbLogger.shared.getLogs()
-        try? content.write(to: path, atomically: true, encoding: .utf8)
-    }
+    // MARK: - Breadcrumbs
     
     private static func loadBreadcrumbsFromDisk() -> [String] {
-        guard let dir = crashDirectory else { return [] }
-        let path = dir.appendingPathComponent(breadcrumbsFile)
-        guard let content = try? String(contentsOf: path, encoding: .utf8) else { return [] }
-        return content.components(separatedBy: "\n").filter { !$0.isEmpty }
+        // Read from BreadcrumbLogger's file location (AppVitality/breadcrumbs.log)
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            print("☠️ [SimpleCrashReporter] Could not get cache directory")
+            return []
+        }
+        
+        let path = cacheDir.appendingPathComponent("AppVitality/breadcrumbs.log")
+        
+        guard let content = try? String(contentsOf: path, encoding: .utf8) else {
+            print("☠️ [SimpleCrashReporter] No breadcrumbs file found at: \(path.path)")
+            return []
+        }
+        
+        let entries = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+        print("☠️ [SimpleCrashReporter] Loaded \(entries.count) breadcrumbs from disk")
+        return entries
     }
     
     // MARK: - Helpers

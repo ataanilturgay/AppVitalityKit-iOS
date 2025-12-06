@@ -155,15 +155,11 @@ public class AppVitalityKit {
         self.options = options
         self.isConfigured = true
         
-        // Clear breadcrumbs from previous session (new session = fresh start)
-        BreadcrumbLogger.shared.clear()
-        print("🧹 [AppVitalityKit] Previous session breadcrumbs cleared")
-        
         debugLog("Configuring with endpoint: \(options.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
         let featureList = options.features.map { "\($0)" }.joined(separator: ",")
         debugLog("Features: \(featureList)")
 
-        // Setup cloud uploader
+        // Setup cloud uploader (this loads and sends pending crashes with their breadcrumbs)
         let endpoint = options.customEndpoint ?? Self.defaultEndpoint
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
@@ -172,6 +168,11 @@ public class AppVitalityKit {
             maxBatchSize: options.maxBatchSize
         )
         self.uploader = AppVitalityUploader(config: uploaderConfig)
+        
+        // Clear breadcrumbs AFTER uploader processes pending crashes
+        // This ensures crash reports include breadcrumbs from the crashed session
+        BreadcrumbLogger.shared.clear()
+        print("🧹 [AppVitalityKit] Previous session breadcrumbs cleared")
 
         print("🔋 AppVitalityKit is starting...")
         print("   ✅ Cloud Sync: Active (Batch upload)")
@@ -406,4 +407,3 @@ extension AppVitalityKit {
         )
     }
 }
-
