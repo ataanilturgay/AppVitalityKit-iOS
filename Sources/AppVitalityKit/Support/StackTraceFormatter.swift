@@ -19,31 +19,51 @@ public class StackTraceFormatter {
     
     /// Formats a single stack frame
     private func formatFrame(index: Int, symbol: String) -> String {
-        // Example input:
-        // "3   iOSBilyonerCase   0x0000000104e83538 $s15iOSBilyonerCase18CartViewControllerC11viewDidLoadyyF + 268"
-        
         let parsed = parseSymbol(symbol)
         
         var result = "\(String(format: "%2d", index)). "
         
         if let parsed = parsed {
-            // App code - show demangled name
             if parsed.isAppCode {
+                // App code - show demangled name with estimated line
                 let demangled = demangle(parsed.symbolName) ?? parsed.symbolName
                 result += "[\(parsed.moduleName)] \(demangled)"
+                
                 if let offset = parsed.offset {
-                    result += " +\(offset)"
+                    // Show byte offset and estimated line number
+                    let estimatedLine = estimateLineNumber(byteOffset: offset)
+                    result += " (offset: +\(offset), ~line \(estimatedLine))"
                 }
             } else {
-                // System framework - show condensed
-                result += "[\(parsed.moduleName)] \(parsed.symbolName)"
+                // System framework - check if it's just a UUID
+                if isUUID(parsed.symbolName) {
+                    result += "[\(parsed.moduleName)] (system)"
+                } else {
+                    result += "[\(parsed.moduleName)] \(parsed.symbolName)"
+                }
             }
         } else {
-            // Couldn't parse, show original
             result += symbol.trimmingCharacters(in: .whitespaces)
         }
         
         return result
+    }
+    
+    /// Checks if a string is a UUID (no symbol info available)
+    private func isUUID(_ string: String) -> Bool {
+        let uuidPattern = "^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$"
+        return string.range(of: uuidPattern, options: .regularExpression) != nil
+    }
+    
+    /// Estimates line number from byte offset
+    /// Assumes ~4 bytes per line on average (ARM64 instruction size)
+    /// This is a rough estimate - accurate line numbers require dSYM
+    private func estimateLineNumber(byteOffset: Int) -> String {
+        // ARM64: typically 4 bytes per instruction
+        // Swift code: roughly 2-4 instructions per source line
+        // Estimate: ~8-16 bytes per line, use 10 as middle ground
+        let estimatedLines = max(1, byteOffset / 10)
+        return "~\(estimatedLines)"
     }
     
     // MARK: - Symbol Parsing
@@ -58,21 +78,16 @@ public class StackTraceFormatter {
     }
     
     private func parseSymbol(_ symbol: String) -> ParsedSymbol? {
-        // Pattern: "3   ModuleName   0x00000001 symbolName + 123"
         let components = symbol.split(separator: " ", omittingEmptySubsequences: true)
         
         guard components.count >= 4 else { return nil }
-        
         guard let frameNumber = Int(components[0]) else { return nil }
         
         let moduleName = String(components[1])
         let address = String(components[2])
         
-        // Find symbol name and offset
         var symbolName = ""
         var offset: Int?
-        
-        // Everything after address until "+" or end
         var symbolParts: [String] = []
         var foundPlus = false
         
@@ -89,7 +104,6 @@ public class StackTraceFormatter {
         
         symbolName = symbolParts.joined(separator: " ")
         
-        // Determine if it's app code (not system framework)
         let systemFrameworks = [
             "UIKitCore", "CoreFoundation", "Foundation", "libsystem",
             "libobjc", "libdispatch", "GraphicsServices", "dyld",
@@ -110,27 +124,16 @@ public class StackTraceFormatter {
     
     // MARK: - Swift Symbol Demangling
     
-    /// Attempts to demangle Swift symbols into readable format
-    /// Uses simplified parsing (full demangling would require Swift runtime)
     private func demangle(_ symbol: String) -> String? {
-        // Swift symbols start with $s or _$s
         guard symbol.hasPrefix("$s") || symbol.hasPrefix("_$s") else {
-            // Might be Obj-C, return as-is with cleanup
             return cleanObjCSymbol(symbol)
         }
-        
-        // Try to extract readable parts from mangled Swift symbol
-        // Example: $s15iOSBilyonerCase18CartViewControllerC11viewDidLoadyyF
-        // Format: $s<module_length><module><class_length><class>...<method>
-        
-        var result = parseSwiftSymbol(symbol)
-        return result
+        return parseSwiftSymbol(symbol)
     }
     
     private func parseSwiftSymbol(_ symbol: String) -> String {
         var s = symbol
         
-        // Remove prefix
         if s.hasPrefix("_$s") {
             s = String(s.dropFirst(3))
         } else if s.hasPrefix("$s") {
@@ -140,9 +143,7 @@ public class StackTraceFormatter {
         var parts: [String] = []
         var index = s.startIndex
         
-        // Parse length-prefixed strings
         while index < s.endIndex {
-            // Try to read a number (length)
             var lengthStr = ""
             while index < s.endIndex, let digit = Int(String(s[index])), digit >= 0 && digit <= 9 {
                 lengthStr += String(s[index])
@@ -150,22 +151,18 @@ public class StackTraceFormatter {
             }
             
             if let length = Int(lengthStr), length > 0 {
-                // Read 'length' characters
                 let endIndex = s.index(index, offsetBy: min(length, s.distance(from: index, to: s.endIndex)))
                 let part = String(s[index..<endIndex])
                 parts.append(part)
                 index = endIndex
             } else {
-                // Skip unknown character
                 if index < s.endIndex {
                     index = s.index(after: index)
                 }
             }
         }
         
-        // Build readable string
         if parts.count >= 2 {
-            // Usually: Module, Class, Method
             let className = parts.count >= 2 ? parts[1] : ""
             let methodName = parts.count >= 3 ? parts[2] : ""
             
@@ -180,14 +177,10 @@ public class StackTraceFormatter {
     }
     
     private func cleanObjCSymbol(_ symbol: String) -> String {
-        // Remove common prefixes/suffixes
         var s = symbol
-        
-        // Remove leading underscores
         while s.hasPrefix("_") {
             s = String(s.dropFirst())
         }
-        
         return s
     }
     
@@ -259,12 +252,19 @@ public class StackTraceFormatter {
         return summary
     }
     
-    /// Finds the first app code frame (likely crash location)
+    /// Finds the first app code frame with detailed info
     private func findCrashLocation(in symbols: [String]) -> String? {
         for symbol in symbols {
             if let parsed = parseSymbol(symbol), parsed.isAppCode {
                 let demangled = demangle(parsed.symbolName) ?? parsed.symbolName
-                return "[\(parsed.moduleName)] \(demangled)"
+                var location = "[\(parsed.moduleName)] \(demangled)"
+                
+                if let offset = parsed.offset {
+                    let estimatedLine = estimateLineNumber(byteOffset: offset)
+                    location += " (byte +\(offset), estimated line \(estimatedLine))"
+                }
+                
+                return location
             }
         }
         return nil
@@ -274,7 +274,6 @@ public class StackTraceFormatter {
 // MARK: - Convenience Extensions
 
 public extension Array where Element == String {
-    /// Formats stack trace symbols for readability
     var formattedStackTrace: String {
         return StackTraceFormatter.shared.format(self)
     }
