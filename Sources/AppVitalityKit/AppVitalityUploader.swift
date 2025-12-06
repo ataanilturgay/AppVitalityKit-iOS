@@ -102,7 +102,7 @@ final class AppVitalityUploader {
                 session: self.currentSession
             )
             self.crashBuffer.append(payload)
-            self.flushCrashes()
+            self.flushCrashesSync()
         }
     }
 
@@ -122,7 +122,7 @@ final class AppVitalityUploader {
                 session: self.currentSession
             )
             self.crashBuffer.append(payload)
-            self.flushCrashes()
+            self.flushCrashesSync()
         }
     }
 
@@ -152,6 +152,17 @@ final class AppVitalityUploader {
         send(data: batch, path: "/v1/crashes")
     }
 
+    private func flushCrashesSync() {
+        guard !crashBuffer.isEmpty else { return }
+        let batch = crashBuffer
+        crashBuffer = []
+        let ok = sendSync(data: batch, path: "/v1/crashes")
+        if !ok {
+            // put back to buffer to retry on next launch/interval
+            crashBuffer.append(contentsOf: batch)
+        }
+    }
+
     private func send<T: Encodable>(data: T, path: String) {
         let sanitizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var request = URLRequest(url: config.endpoint.appendingPathComponent(sanitizedPath))
@@ -163,5 +174,29 @@ final class AppVitalityUploader {
         request.httpBody = body
 
         session.dataTask(with: request).resume()
+    }
+
+    private func sendSync<T: Encodable>(data: T, path: String) -> Bool {
+        let sanitizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var request = URLRequest(url: config.endpoint.appendingPathComponent(sanitizedPath))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(config.apiKey, forHTTPHeaderField: "x-appvitality-key")
+
+        guard let body = try? encoder.encode(data) else { return false }
+        request.httpBody = body
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var success = false
+
+        let task = session.dataTask(with: request) { _, response, error in
+            defer { semaphore.signal() }
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), error == nil {
+                success = true
+            }
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 2.0) // wait up to 2s
+        return success
     }
 }
