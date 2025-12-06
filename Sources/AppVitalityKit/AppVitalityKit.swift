@@ -270,7 +270,8 @@ public class AppVitalityKit {
         """
         
         let report = AppVitalityCrashReport(
-            title: "FatalError: \(message)",
+            title: "FatalError",
+            reason: message,
             stackTrace: stackTrace,
             logString: crashLog,
             observedAt: Date(),

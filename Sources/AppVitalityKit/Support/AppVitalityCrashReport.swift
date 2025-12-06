@@ -2,6 +2,7 @@ import Foundation
 
 struct AppVitalityCrashReport: Codable {
     let title: String
+    let reason: String?
     let stackTrace: String
     let logString: String
     let observedAt: Date

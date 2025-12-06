@@ -280,15 +280,14 @@ public class SimpleCrashReporter {
         let formattedStackTrace = StackTraceFormatter.shared.format(stackSymbols)
         let rawStackTrace = stackSymbols.joined(separator: "\n")
         
-        // Build descriptive title with reason
+        // Title: short exception name, Reason: detailed message (separate fields)
         let exceptionName = exception.name.rawValue
-        let reason = exception.reason ?? "Unknown reason"
-        let fullTitle = "\(exceptionName): \(reason)"
+        let reason = exception.reason
         
         // Generate human-readable summary
         let summary = StackTraceFormatter.shared.generateSummary(
             title: exceptionName,
-            reason: exception.reason,
+            reason: reason,
             stackSymbols: stackSymbols,
             breadcrumbs: breadcrumbEntries
         )
@@ -310,7 +309,8 @@ public class SimpleCrashReporter {
         print(summary) // Print readable summary to console
 
         let report = AppVitalityCrashReport(
-            title: fullTitle,
+            title: exceptionName,
+            reason: reason,
             stackTrace: formattedStackTrace,
             logString: crashLog,
             observedAt: Date(),
@@ -423,6 +423,7 @@ public class SimpleCrashReporter {
         
         let report = AppVitalityCrashReport(
             title: signalName,
+            reason: nil,
             stackTrace: "Stack trace not available (captured from signal handler)",
             logString: """
             [CRASH REPORT - SIGNAL]
