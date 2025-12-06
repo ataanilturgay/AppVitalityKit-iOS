@@ -184,10 +184,9 @@ public class SimpleCrashReporter {
             result[key] = AnyEncodable(value)
         }
         
-        // Add note that this is from last snapshot
+        // Add snapshot timestamp
         if let timestamp = json["timestamp"] as? String {
             result["snapshotTime"] = AnyEncodable(timestamp)
-            result["note"] = AnyEncodable("Environment captured before crash (periodic snapshot)")
         }
         
         return result
@@ -417,9 +416,7 @@ public class SimpleCrashReporter {
         } else {
             // Fallback to current environment
             let context = generateContextSnapshot()
-            var env = context.data
-            env["note"] = AnyEncodable("Environment captured at restart (no pre-crash snapshot available)")
-            environment = env
+            environment = context.data
             environmentDescription = context.description
             print("☠️ [SimpleCrashReporter] No pre-crash snapshot, using current environment")
         }
