@@ -48,9 +48,11 @@ final class AppVitalityUploader {
     // Static Session Data (Değişmezler)
     private let currentSession: SessionInfo
 
-    init(config: CloudConfig, session: URLSession = .shared) {
+    init(config: CloudConfig) {
         self.config = config
-        self.session = session
+        // Use a custom URLSession to avoid main thread deadlocks with sync requests
+        let sessionConfig = URLSessionConfiguration.default
+        self.session = URLSession(configuration: sessionConfig)
         
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -236,8 +238,15 @@ final class AppVitalityUploader {
 
         let task = session.dataTask(with: request) { _, response, error in
             defer { semaphore.signal() }
-            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), error == nil {
-                success = true
+            if let error = error {
+                print("☠️ [AppVitalityKit] Sync send error: \(error)")
+            }
+            if let http = response as? HTTPURLResponse {
+                if (200..<300).contains(http.statusCode) && error == nil {
+                    success = true
+                } else {
+                    print("☠️ [AppVitalityKit] Sync send failed with status: \(http.statusCode)")
+                }
             }
         }
         task.resume()
@@ -250,15 +259,21 @@ final class AppVitalityUploader {
     private static let pendingCrashesKey = "AppVitality_PendingCrashes"
     
     private func saveCrashToDisk(_ payload: CrashPayload) {
-        guard let encoded = try? encoder.encode(payload),
-              let jsonString = String(data: encoded, encoding: .utf8) else {
-            return
+        do {
+            let encoded = try encoder.encode(payload)
+            guard let jsonString = String(data: encoded, encoding: .utf8) else {
+                print("☠️ [AppVitalityKit] Failed to convert crash payload to string")
+                return
+            }
+            
+            var pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey) ?? []
+            pending.append(jsonString)
+            UserDefaults.standard.set(pending, forKey: Self.pendingCrashesKey)
+            UserDefaults.standard.synchronize()
+            print("☠️ [AppVitalityKit] Crash successfully saved to disk")
+        } catch {
+            print("☠️ [AppVitalityKit] Failed to encode crash payload: \(error)")
         }
-        
-        var pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey) ?? []
-        pending.append(jsonString)
-        UserDefaults.standard.set(pending, forKey: Self.pendingCrashesKey)
-        UserDefaults.standard.synchronize()
     }
     
     private func removeCrashesFromDisk(_ payloads: [CrashPayload]) {
@@ -285,6 +300,7 @@ final class AppVitalityUploader {
     private func loadPendingCrashes() {
         guard let pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey),
               !pending.isEmpty else {
+            print("☠️ [AppVitalityKit] No pending crashes found on disk")
             return
         }
         
@@ -294,12 +310,17 @@ final class AppVitalityUploader {
         decoder.dateDecodingStrategy = .iso8601
         
         for jsonString in pending {
-            guard let data = jsonString.data(using: .utf8),
-                  let payload = try? decoder.decode(CrashPayload.self, from: data) else {
-                continue
+            guard let data = jsonString.data(using: .utf8) else { continue }
+            
+            do {
+                let payload = try decoder.decode(CrashPayload.self, from: data)
+                crashBuffer.append(payload)
+                print("☠️ [AppVitalityKit] Loaded pending crash: \(payload.title)")
+            } catch {
+                print("☠️ [AppVitalityKit] Failed to decode pending crash: \(error)")
+                // Optional: print jsonString to see what's wrong
+                // print("JSON: \(jsonString)")
             }
-            crashBuffer.append(payload)
-            print("☠️ [AppVitalityKit] Loaded pending crash: \(payload.title)")
         }
         
         // Try to send pending crashes immediately
