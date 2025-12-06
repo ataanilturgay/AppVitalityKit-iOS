@@ -254,79 +254,105 @@ final class AppVitalityUploader {
         return success
     }
     
-    // MARK: - Disk Persistence
+    // MARK: - Disk Persistence (File System)
     
-    private static let pendingCrashesKey = "AppVitality_PendingCrashes"
+    private var crashesDirectory: URL? {
+        let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+        guard let cacheDir = paths.first else { return nil }
+        let dir = cacheDir.appendingPathComponent("AppVitality/Crashes")
+        // Ensure directory exists
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
     
     private func saveCrashToDisk(_ payload: CrashPayload) {
+        guard let dir = crashesDirectory else { return }
+        let filename = "crash-\(Int(payload.observedAt.timeIntervalSince1970))-\(UUID().uuidString).json"
+        let fileURL = dir.appendingPathComponent(filename)
+        
         do {
-            let encoded = try encoder.encode(payload)
-            guard let jsonString = String(data: encoded, encoding: .utf8) else {
-                print("☠️ [AppVitalityKit] Failed to convert crash payload to string")
-                return
-            }
-            
-            var pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey) ?? []
-            pending.append(jsonString)
-            UserDefaults.standard.set(pending, forKey: Self.pendingCrashesKey)
-            UserDefaults.standard.synchronize()
-            print("☠️ [AppVitalityKit] Crash successfully saved to disk")
+            let data = try encoder.encode(payload)
+            try data.write(to: fileURL, options: .atomic)
+            print("☠️ [AppVitalityKit] Crash saved to file: \(fileURL.lastPathComponent)")
         } catch {
-            print("☠️ [AppVitalityKit] Failed to encode crash payload: \(error)")
+            print("☠️ [AppVitalityKit] Failed to save crash to file: \(error)")
         }
     }
     
     private func removeCrashesFromDisk(_ payloads: [CrashPayload]) {
-        guard var pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey),
-              !pending.isEmpty else {
-            return
-        }
+        guard let dir = crashesDirectory else { return }
         
-        // Remove successfully sent crashes
-        let sentIds = Set(payloads.map { "\($0.title)-\($0.observedAt.timeIntervalSince1970)" })
-        pending.removeAll { jsonString in
-            guard let data = jsonString.data(using: .utf8),
-                  let payload = try? JSONDecoder().decode(CrashPayload.self, from: data) else {
-                return false
+        do {
+            let fileURLs = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            
+            for fileURL in fileURLs {
+                guard fileURL.pathExtension == "json",
+                      let data = try? Data(contentsOf: fileURL),
+                      let storedPayload = try? decoder.decode(CrashPayload.self, from: data) else {
+                    continue
+                }
+                
+                // Check if this stored payload matches any of the successfully sent payloads
+                // Match by title and rough timestamp
+                let isSent = payloads.contains {
+                    $0.title == storedPayload.title &&
+                    abs($0.observedAt.timeIntervalSince1970 - storedPayload.observedAt.timeIntervalSince1970) < 1.0
+                }
+                
+                if isSent {
+                    try FileManager.default.removeItem(at: fileURL)
+                    print("☠️ [AppVitalityKit] Removed sent crash file: \(fileURL.lastPathComponent)")
+                }
             }
-            let id = "\(payload.title)-\(payload.observedAt.timeIntervalSince1970)"
-            return sentIds.contains(id)
+        } catch {
+            print("☠️ [AppVitalityKit] Failed to cleanup crash files: \(error)")
         }
-        
-        UserDefaults.standard.set(pending, forKey: Self.pendingCrashesKey)
-        UserDefaults.standard.synchronize()
     }
     
     private func loadPendingCrashes() {
-        guard let pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey),
-              !pending.isEmpty else {
-            print("☠️ [AppVitalityKit] No pending crashes found on disk")
-            return
-        }
+        guard let dir = crashesDirectory else { return }
         
-        print("☠️ [AppVitalityKit] Found \(pending.count) pending crash(es) from previous session")
-        
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        
-        for jsonString in pending {
-            guard let data = jsonString.data(using: .utf8) else { continue }
+        do {
+            let fileURLs = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            let jsonFiles = fileURLs.filter { $0.pathExtension == "json" }
             
-            do {
-                let payload = try decoder.decode(CrashPayload.self, from: data)
-                crashBuffer.append(payload)
-                print("☠️ [AppVitalityKit] Loaded pending crash: \(payload.title)")
-            } catch {
-                print("☠️ [AppVitalityKit] Failed to decode pending crash: \(error)")
-                // Optional: print jsonString to see what's wrong
-                // print("JSON: \(jsonString)")
+            guard !jsonFiles.isEmpty else {
+                print("☠️ [AppVitalityKit] No pending crashes found on disk")
+                return
             }
-        }
-        
-        // Try to send pending crashes immediately
-        if !crashBuffer.isEmpty {
-            print("☠️ [AppVitalityKit] Sending \(crashBuffer.count) pending crash(es)...")
-            flushCrashes()
+            
+            print("☠️ [AppVitalityKit] Found \(jsonFiles.count) pending crash(es) from previous session")
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            
+            for fileURL in jsonFiles {
+                guard let data = try? Data(contentsOf: fileURL) else { continue }
+                
+                do {
+                    let payload = try decoder.decode(CrashPayload.self, from: data)
+                    crashBuffer.append(payload)
+                    print("☠️ [AppVitalityKit] Loaded pending crash: \(payload.title)")
+                } catch {
+                    print("☠️ [AppVitalityKit] Failed to decode pending crash file: \(fileURL.lastPathComponent) - \(error)")
+                    // Optionally delete corrupted file
+                    // try? FileManager.default.removeItem(at: fileURL)
+                }
+            }
+            
+            if !crashBuffer.isEmpty {
+                print("☠️ [AppVitalityKit] Sending \(crashBuffer.count) pending crash(es)...")
+                flushCrashes()
+            }
+            
+        } catch {
+            print("☠️ [AppVitalityKit] Failed to load pending crashes: \(error)")
         }
     }
+
 }
+
