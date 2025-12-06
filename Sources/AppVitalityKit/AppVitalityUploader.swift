@@ -94,6 +94,7 @@ final class AppVitalityUploader {
     }
 
     func enqueueCrash(_ log: String) {
+        print("☠️ [AppVitalityKit] Enqueue crash log")
         queue.async { [weak self] in
             guard let self else { return }
             let payload = CrashPayload(
@@ -106,6 +107,7 @@ final class AppVitalityUploader {
             )
             // Save to disk immediately before attempting sync send
             self.saveCrashToDisk(payload)
+            print("☠️ [AppVitalityKit] Crash saved to disk")
             self.crashBuffer.append(payload)
             self.flushCrashesSync()
         }
@@ -130,6 +132,39 @@ final class AppVitalityUploader {
             self.saveCrashToDisk(payload)
             self.crashBuffer.append(payload)
             self.flushCrashesSync()
+        }
+    }
+    
+    /// Synchronous crash report enqueue for signal handlers
+    /// Must be called from signal handler context (no async queues)
+    func enqueueCrashReportSync(title: String,
+                                stackTrace: String,
+                                observedAt: Date,
+                                breadcrumbs: [[String: AnyEncodable]]?,
+                                environment: [String: AnyEncodable]?) {
+        print("☠️ [AppVitalityKit] Enqueue crash report (sync): \(title)")
+        let payload = CrashPayload(
+            title: title,
+            stackTrace: stackTrace,
+            observedAt: observedAt,
+            breadcrumbs: breadcrumbs,
+            environment: environment,
+            session: currentSession
+        )
+        // Save to disk immediately (synchronous)
+        saveCrashToDisk(payload)
+        print("☠️ [AppVitalityKit] Crash saved to disk (sync)")
+        // Try to send synchronously (with timeout)
+        print("☠️ [AppVitalityKit] Attempting sync send...")
+        let ok = sendSync(data: [payload], path: "/v1/crashes")
+        if !ok {
+            print("☠️ [AppVitalityKit] Sync send failed, will retry on next launch")
+            // Failed to send, will be retried on next launch
+            crashBuffer.append(payload)
+        } else {
+            print("☠️ [AppVitalityKit] Crash sent successfully")
+            // Successfully sent, remove from disk
+            removeCrashesFromDisk([payload])
         }
     }
 
@@ -159,7 +194,7 @@ final class AppVitalityUploader {
         send(data: batch, path: "/v1/crashes")
     }
 
-    private func flushCrashesSync() {
+    func flushCrashesSync() {
         guard !crashBuffer.isEmpty else { return }
         let batch = crashBuffer
         crashBuffer = []
@@ -253,6 +288,8 @@ final class AppVitalityUploader {
             return
         }
         
+        print("☠️ [AppVitalityKit] Found \(pending.count) pending crash(es) from previous session")
+        
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
@@ -262,10 +299,12 @@ final class AppVitalityUploader {
                 continue
             }
             crashBuffer.append(payload)
+            print("☠️ [AppVitalityKit] Loaded pending crash: \(payload.title)")
         }
         
         // Try to send pending crashes immediately
         if !crashBuffer.isEmpty {
+            print("☠️ [AppVitalityKit] Sending \(crashBuffer.count) pending crash(es)...")
             flushCrashes()
         }
     }

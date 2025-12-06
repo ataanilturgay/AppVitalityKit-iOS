@@ -238,6 +238,45 @@ public class AppVitalityKit {
         let event = AppVitalityEvent.custom(name: name, parameters: parameters)
         handle(event: event)
     }
+    
+    /// Report a crash before calling fatalError
+    /// This ensures the crash is saved to disk before the app terminates
+    /// - Parameters:
+    ///   - message: Crash message/reason
+    ///   - file: Source file (defaults to #file)
+    ///   - line: Source line (defaults to #line)
+    /// - Example:
+    ///   ```
+    ///   AppVitalityKit.shared.reportCrash(message: "Test crash")
+    ///   fatalError("Test crash")
+    ///   ```
+    public func reportCrash(message: String, file: String = #file, line: Int = #line) {
+        let fileName = (file as NSString).lastPathComponent
+        let stackTrace = Thread.callStackSymbols.joined(separator: "\n")
+        let crashLog = """
+        [CRASH REPORT - FATAL ERROR]
+        Date: \(Date())
+        Message: \(message)
+        File: \(fileName):\(line)
+        
+        [STACK TRACE]
+        \(stackTrace)
+        """
+        
+        let report = AppVitalityCrashReport(
+            title: "FatalError: \(message)",
+            stackTrace: stackTrace,
+            logString: crashLog,
+            observedAt: Date(),
+            breadcrumbs: BreadcrumbLogger.shared.getLogEntries().map { ["message": AnyEncodable($0)] },
+            environment: nil
+        )
+        
+        handleCrash(report: report)
+        
+        // Force immediate flush to disk
+        uploader?.flushCrashesSync()
+    }
 
     /// Access to current options (Read-only)
     public var currentOptions: Options? {
@@ -253,6 +292,7 @@ public class AppVitalityKit {
     }
 
     func handleCrash(report: AppVitalityCrashReport) {
+        print("☠️ [AppVitalityKit] Crash detected: \(report.title)")
         debugLog("Enqueue crash: \(report.title)")
         delegate?.didDetectCrash(report.logString)
         uploader?.enqueueCrashReport(title: report.title,
@@ -260,6 +300,20 @@ public class AppVitalityKit {
                                      observedAt: report.observedAt,
                                      breadcrumbs: report.breadcrumbs,
                                      environment: report.environment)
+    }
+    
+    /// Synchronous crash handling for signal handlers
+    /// Must be called from signal handler context (no async queues)
+    func handleCrashSync(report: AppVitalityCrashReport) {
+        print("☠️ [AppVitalityKit] Crash detected (sync): \(report.title)")
+        print("☠️ [AppVitalityKit] Stack trace:\n\(report.stackTrace)")
+        debugLog("Enqueue crash (sync): \(report.title)")
+        delegate?.didDetectCrash(report.logString)
+        uploader?.enqueueCrashReportSync(title: report.title,
+                                        stackTrace: report.stackTrace,
+                                        observedAt: report.observedAt,
+                                        breadcrumbs: report.breadcrumbs,
+                                        environment: report.environment)
     }
 
     func handleLegacyCrashLog(_ log: String) {
@@ -271,6 +325,15 @@ public class AppVitalityKit {
         guard options?.enableDebugLogging == true else { return }
         print("🔍 AppVitalityKit DEBUG: \(message)")
     }
+}
+
+// MARK: - Global Helper for fatalError
+
+/// Helper function to report crash before calling fatalError
+/// Usage: fatalErrorWithReport("Test crash")
+public func fatalErrorWithReport(_ message: String, file: StaticString = #file, line: UInt = #line) -> Never {
+    AppVitalityKit.shared.reportCrash(message: message, file: String(describing: file), line: Int(line))
+    fatalError(message, file: file, line: line)
 }
 
 // MARK: - Legacy Configuration (Deprecated)
