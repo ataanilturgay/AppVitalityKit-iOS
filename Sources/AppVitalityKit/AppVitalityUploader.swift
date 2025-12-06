@@ -167,9 +167,8 @@ final class AppVitalityUploader {
             print("☠️ [AppVitalityKit] Crash sent successfully")
             // Successfully sent, remove from disk
             removeCrashesFromDisk([payload])
-            // Clear breadcrumbs after successful send
-            BreadcrumbLogger.shared.clear()
-            print("☠️ [AppVitalityKit] Breadcrumbs cleared after crash report")
+            // Note: Breadcrumbs will be cleared on next app launch
+            // Don't clear here - app is crashing and async operations won't complete
         }
     }
 

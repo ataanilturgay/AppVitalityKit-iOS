@@ -154,6 +154,11 @@ public class AppVitalityKit {
         self.apiKey = apiKey
         self.options = options
         self.isConfigured = true
+        
+        // Clear breadcrumbs from previous session (new session = fresh start)
+        BreadcrumbLogger.shared.clear()
+        print("🧹 [AppVitalityKit] Previous session breadcrumbs cleared")
+        
         debugLog("Configuring with endpoint: \(options.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
         let featureList = options.features.map { "\($0)" }.joined(separator: ",")
         debugLog("Features: \(featureList)")
@@ -401,3 +406,4 @@ extension AppVitalityKit {
         )
     }
 }
+
