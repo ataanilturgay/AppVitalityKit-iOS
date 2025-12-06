@@ -155,7 +155,8 @@ public class AppVitalityKit {
         self.options = options
         self.isConfigured = true
         debugLog("Configuring with endpoint: \(options.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
-        debugLog("Features: \(options.features.map { \"\($0)\" }.joined(separator: \",\"))")
+        let featureList = options.features.map { "\($0)" }.joined(separator: ",")
+        debugLog("Features: \(featureList)")
 
         // Setup cloud uploader
         let endpoint = options.customEndpoint ?? Self.defaultEndpoint
