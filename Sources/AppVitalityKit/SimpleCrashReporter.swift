@@ -225,9 +225,9 @@ public class SimpleCrashReporter {
         // Try to send (best effort)
         AppVitalityKit.shared.handleCrashSync(report: report)
         
-        // Kill the app after handling - don't let it hang
-        NSSetUncaughtExceptionHandler(nil)  // Remove our handler
-        exception.raise()  // Re-raise to let system handle termination
+        // Terminate the app properly after handling
+        // Don't re-raise - just kill the process
+        kill(getpid(), SIGKILL)
     }
     
     // MARK: - Save Crash Data to Disk (Synchronous)
@@ -420,4 +420,3 @@ public class SimpleCrashReporter {
         return CrashContext(description: description, data: data)
     }
 }
-

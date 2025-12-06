@@ -340,36 +340,59 @@ final class AppVitalityUploader {
                 return
             }
             
-            print("☠️ [AppVitalityKit] Found \(jsonFiles.count) pending crash(es) from previous session")
+            print("☠️ [AppVitalityKit] Found \(jsonFiles.count) pending crash file(s)")
             
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             
             for fileURL in jsonFiles {
-                guard let data = try? Data(contentsOf: fileURL) else { continue }
-                
-                do {
-                    let payload = try decoder.decode(CrashPayload.self, from: data)
-                    crashBuffer.append(payload)
-                    print("☠️ [AppVitalityKit] Loaded pending crash: \(payload.title)")
-                } catch {
-                    print("☠️ [AppVitalityKit] Failed to decode pending crash file: \(fileURL.lastPathComponent) - \(error)")
-                    // Optionally delete corrupted file
-                    // try? FileManager.default.removeItem(at: fileURL)
+                // Skip non-crash files
+                let filename = fileURL.lastPathComponent
+                if filename.contains("marker") || filename.contains("breadcrumb") {
+                    continue
                 }
+                
+                guard let data = try? Data(contentsOf: fileURL) else {
+                    try? FileManager.default.removeItem(at: fileURL)
+                    continue
+                }
+                
+                // Try CrashPayload format first (has session)
+                if let payload = try? decoder.decode(CrashPayload.self, from: data) {
+                    crashBuffer.append(payload)
+                    print("☠️ [AppVitalityKit] Loaded crash: \(payload.title)")
+                    try? FileManager.default.removeItem(at: fileURL)
+                    continue
+                }
+                
+                // Try AppVitalityCrashReport format (no session)
+                if let report = try? decoder.decode(AppVitalityCrashReport.self, from: data) {
+                    let payload = CrashPayload(
+                        title: report.title,
+                        stackTrace: report.stackTrace,
+                        observedAt: report.observedAt,
+                        breadcrumbs: report.breadcrumbs,
+                        environment: report.environment,
+                        session: currentSession
+                    )
+                    crashBuffer.append(payload)
+                    print("☠️ [AppVitalityKit] Loaded crash (legacy): \(report.title)")
+                    try? FileManager.default.removeItem(at: fileURL)
+                    continue
+                }
+                
+                // Unknown format - delete
+                print("☠️ [AppVitalityKit] Deleting unreadable crash file: \(filename)")
+                try? FileManager.default.removeItem(at: fileURL)
             }
             
             if !crashBuffer.isEmpty {
                 print("☠️ [AppVitalityKit] Sending \(crashBuffer.count) pending crash(es)...")
                 flushCrashes()
-                // Clear old breadcrumbs from previous session
-                BreadcrumbLogger.shared.clear()
-                print("☠️ [AppVitalityKit] Old breadcrumbs cleared")
             }
             
         } catch {
             print("☠️ [AppVitalityKit] Failed to load pending crashes: \(error)")
         }
     }
-
 }
