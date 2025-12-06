@@ -5,12 +5,12 @@ extension UIControl {
     static func enableActionTracking() {
         Swizzler.swizzle(UIControl.self,
                          originalSelector: #selector(sendAction(_:to:for:)),
-                         swizzledSelector: #selector(bf_sendAction(_:to:for:)))
+                         swizzledSelector: #selector(av_sendAction(_:to:for:)))
     }
     
-    @objc private func bf_sendAction(_ action: Selector, to target: Any?, for event: UIEvent?) {
+    @objc private func av_sendAction(_ action: Selector, to target: Any?, for event: UIEvent?) {
         // Call original method
-        bf_sendAction(action, to: target, for: event)
+        av_sendAction(action, to: target, for: event)
         
         // Extract button info
         let buttonId = self.accessibilityIdentifier
@@ -35,17 +35,31 @@ extension UIControl {
             responder = r.next
         }
         
-        // Log breadcrumb for crash debugging
-        var logMessage = "UI Action: \(String(describing: action))"
-        if let identifier = buttonId {
-            logMessage += " | Target: \(identifier)"
-        } else {
-            logMessage += " | Class: \(String(describing: type(of: self)))"
-            if let title = buttonText {
-                logMessage += " | Title: '\(title)'"
-            }
+        // Determine if this is a critical action
+        let isCritical = isCriticalAction(buttonId: buttonId, buttonText: buttonText, action: action)
+        
+        // Build log message
+        let actionName = NSStringFromSelector(action)
+        var logParts: [String] = [actionName]
+        
+        if let id = buttonId {
+            logParts.append("id:\(id)")
         }
-        BreadcrumbLogger.shared.log(logMessage)
+        if let text = buttonText {
+            logParts.append("'\(text)'")
+        }
+        if let screen = currentScreen {
+            logParts.append("@\(screen)")
+        }
+        
+        let logMessage = logParts.joined(separator: " | ")
+        
+        // Log to breadcrumbs
+        if isCritical {
+            BreadcrumbLogger.shared.logCritical("👆 \(logMessage)")
+        } else {
+            BreadcrumbLogger.shared.logAction("tap", target: logMessage)
+        }
         
         // Send button_tap event for analytics (only for meaningful taps)
         if buttonText != nil || buttonId != nil {
@@ -57,5 +71,36 @@ extension UIControl {
             AppVitalityKit.shared.handle(event: tapEvent)
         }
     }
+    
+    /// Determines if an action should be treated as critical (immediately persisted).
+    /// Critical actions: payments, auth, destructive actions, navigation
+    private func isCriticalAction(buttonId: String?, buttonText: String?, action: Selector) -> Bool {
+        let actionName = NSStringFromSelector(action).lowercased()
+        let id = buttonId?.lowercased() ?? ""
+        let text = buttonText?.lowercased() ?? ""
+        
+        // Keywords that indicate critical actions
+        let criticalKeywords = [
+            // Payment & Purchase
+            "pay", "purchase", "buy", "checkout", "order", "subscribe",
+            // Authentication
+            "login", "logout", "signin", "signout", "register", "signup", "auth",
+            // Destructive
+            "delete", "remove", "cancel", "clear", "reset",
+            // Important navigation
+            "submit", "confirm", "save", "send", "share", "post",
+            // Settings
+            "setting", "preference", "permission"
+        ]
+        
+        for keyword in criticalKeywords {
+            if actionName.contains(keyword) ||
+               id.contains(keyword) ||
+               text.contains(keyword) {
+                return true
+            }
+        }
+        
+        return false
+    }
 }
-
