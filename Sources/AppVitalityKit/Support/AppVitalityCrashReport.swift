@@ -1,6 +1,6 @@
 import Foundation
 
-struct AppVitalityCrashReport {
+struct AppVitalityCrashReport: Codable {
     let title: String
     let stackTrace: String
     let logString: String
@@ -8,4 +8,3 @@ struct AppVitalityCrashReport {
     let breadcrumbs: [[String: AnyEncodable]]?
     let environment: [String: AnyEncodable]?
 }
-
