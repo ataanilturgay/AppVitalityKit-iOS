@@ -11,7 +11,7 @@ final class AppVitalityUploader {
     }
     
     // Cihaz ve Oturum Bilgileri
-    private struct SessionInfo: Encodable {
+    private struct SessionInfo: Codable {
         let id: String
         let deviceId: String
         let appVersion: String
@@ -28,7 +28,7 @@ final class AppVitalityUploader {
         let session: SessionInfo // Her event ile gönderilir
     }
 
-    private struct CrashPayload: Encodable {
+    private struct CrashPayload: Codable {
         let title: String
         let stackTrace: String
         let observedAt: Date
@@ -67,6 +67,9 @@ final class AppVitalityUploader {
             locale: Locale.current.identifier
         )
         
+        // Check for pending crashes from previous session
+        loadPendingCrashes()
+        
         startTimer()
     }
 
@@ -101,6 +104,8 @@ final class AppVitalityUploader {
                 environment: nil,
                 session: self.currentSession
             )
+            // Save to disk immediately before attempting sync send
+            self.saveCrashToDisk(payload)
             self.crashBuffer.append(payload)
             self.flushCrashesSync()
         }
@@ -121,6 +126,8 @@ final class AppVitalityUploader {
                 environment: environment,
                 session: self.currentSession
             )
+            // Save to disk immediately before attempting sync send
+            self.saveCrashToDisk(payload)
             self.crashBuffer.append(payload)
             self.flushCrashesSync()
         }
@@ -157,8 +164,11 @@ final class AppVitalityUploader {
         let batch = crashBuffer
         crashBuffer = []
         let ok = sendSync(data: batch, path: "/v1/crashes")
-        if !ok {
-            // put back to buffer to retry on next launch/interval
+        if ok {
+            // Successfully sent, remove from disk
+            removeCrashesFromDisk(batch)
+        } else {
+            // Failed to send, keep in buffer and disk (already saved)
             crashBuffer.append(contentsOf: batch)
         }
     }
@@ -198,5 +208,65 @@ final class AppVitalityUploader {
         task.resume()
         _ = semaphore.wait(timeout: .now() + 2.0) // wait up to 2s
         return success
+    }
+    
+    // MARK: - Disk Persistence
+    
+    private static let pendingCrashesKey = "AppVitality_PendingCrashes"
+    
+    private func saveCrashToDisk(_ payload: CrashPayload) {
+        guard let encoded = try? encoder.encode(payload),
+              let jsonString = String(data: encoded, encoding: .utf8) else {
+            return
+        }
+        
+        var pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey) ?? []
+        pending.append(jsonString)
+        UserDefaults.standard.set(pending, forKey: Self.pendingCrashesKey)
+        UserDefaults.standard.synchronize()
+    }
+    
+    private func removeCrashesFromDisk(_ payloads: [CrashPayload]) {
+        guard var pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey),
+              !pending.isEmpty else {
+            return
+        }
+        
+        // Remove successfully sent crashes
+        let sentIds = Set(payloads.map { "\($0.title)-\($0.observedAt.timeIntervalSince1970)" })
+        pending.removeAll { jsonString in
+            guard let data = jsonString.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(CrashPayload.self, from: data) else {
+                return false
+            }
+            let id = "\(payload.title)-\(payload.observedAt.timeIntervalSince1970)"
+            return sentIds.contains(id)
+        }
+        
+        UserDefaults.standard.set(pending, forKey: Self.pendingCrashesKey)
+        UserDefaults.standard.synchronize()
+    }
+    
+    private func loadPendingCrashes() {
+        guard let pending = UserDefaults.standard.stringArray(forKey: Self.pendingCrashesKey),
+              !pending.isEmpty else {
+            return
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        for jsonString in pending {
+            guard let data = jsonString.data(using: .utf8),
+                  let payload = try? decoder.decode(CrashPayload.self, from: data) else {
+                continue
+            }
+            crashBuffer.append(payload)
+        }
+        
+        // Try to send pending crashes immediately
+        if !crashBuffer.isEmpty {
+            flushCrashes()
+        }
     }
 }
