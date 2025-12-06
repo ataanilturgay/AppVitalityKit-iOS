@@ -92,9 +92,105 @@ public class SimpleCrashReporter {
         installSignalHandler(SIGPIPE)
         installSignalHandler(SIGTRAP)
         
-        // Note: Breadcrumbs are saved by BreadcrumbLogger automatically
+        // 4. Start periodic environment snapshot (like Crashlytics)
+        startEnvironmentSnapshots()
         
         print("☠️ [SimpleCrashReporter] Crash reporter ready")
+    }
+    
+    // MARK: - Periodic Environment Snapshot (Crashlytics-style)
+    
+    private static var snapshotTimer: Timer?
+    private static let environmentFile = "last_environment.json"
+    
+    private static func startEnvironmentSnapshots() {
+        // Save initial snapshot
+        saveEnvironmentSnapshot()
+        
+        // Update every 2 seconds (like Crashlytics)
+        DispatchQueue.main.async {
+            snapshotTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+                saveEnvironmentSnapshot()
+            }
+        }
+        
+        // Also save on significant events
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            saveEnvironmentSnapshot()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            saveEnvironmentSnapshot()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            saveEnvironmentSnapshot()
+            BreadcrumbLogger.shared.logError("Memory Warning", context: "System")
+        }
+    }
+    
+    private static func saveEnvironmentSnapshot() {
+        guard let dir = crashDirectory else { return }
+        let path = dir.appendingPathComponent(environmentFile)
+        
+        let context = generateContextSnapshot()
+        
+        // Convert context.data to JSON-serializable dictionary
+        // Use JSONEncoder to properly serialize AnyEncodable values
+        do {
+            let encoder = JSONEncoder()
+            let envData = try encoder.encode(context.data)
+            guard let envDict = try JSONSerialization.jsonObject(with: envData) as? [String: Any] else {
+                return
+            }
+            
+            let snapshot: [String: Any] = [
+                "timestamp": ISO8601DateFormatter().string(from: Date()),
+                "environment": envDict
+            ]
+            
+            let data = try JSONSerialization.data(withJSONObject: snapshot)
+            try data.write(to: path, options: .atomic)
+        } catch {
+            print("☠️ [SimpleCrashReporter] Failed to save environment snapshot: \(error)")
+        }
+    }
+    
+    private static func loadLastEnvironmentSnapshot() -> [String: AnyEncodable]? {
+        guard let dir = crashDirectory else { return nil }
+        let path = dir.appendingPathComponent(environmentFile)
+        
+        guard let data = try? Data(contentsOf: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let env = json["environment"] as? [String: Any] else {
+            return nil
+        }
+        
+        // Convert to AnyEncodable
+        var result: [String: AnyEncodable] = [:]
+        for (key, value) in env {
+            result[key] = AnyEncodable(value)
+        }
+        
+        // Add note that this is from last snapshot
+        if let timestamp = json["timestamp"] as? String {
+            result["snapshotTime"] = AnyEncodable(timestamp)
+            result["note"] = AnyEncodable("Environment captured before crash (periodic snapshot)")
+        }
+        
+        return result
     }
     
     // MARK: - Setup Crash Marker Path
@@ -308,16 +404,71 @@ public class SimpleCrashReporter {
     
     private static func sendMinimalReport(signalName: String) {
         let breadcrumbs = loadBreadcrumbsFromDisk()
+        
+        // Try to load last environment snapshot (captured before crash)
+        // This is more accurate than current environment
+        let environment: [String: AnyEncodable]
+        let environmentDescription: String
+        
+        if let lastSnapshot = loadLastEnvironmentSnapshot() {
+            environment = lastSnapshot
+            environmentDescription = formatEnvironmentForLog(lastSnapshot)
+            print("☠️ [SimpleCrashReporter] Using pre-crash environment snapshot")
+        } else {
+            // Fallback to current environment
+            let context = generateContextSnapshot()
+            var env = context.data
+            env["note"] = AnyEncodable("Environment captured at restart (no pre-crash snapshot available)")
+            environment = env
+            environmentDescription = context.description
+            print("☠️ [SimpleCrashReporter] No pre-crash snapshot, using current environment")
+        }
+        
         let report = AppVitalityCrashReport(
             title: signalName,
-            stackTrace: "Stack trace not available (captured from signal)",
-            logString: "[CRASH REPORT - SIGNAL]\nSignal: \(signalName)\nNote: Detailed stack trace unavailable",
+            stackTrace: "Stack trace not available (captured from signal handler)",
+            logString: """
+            [CRASH REPORT - SIGNAL]
+            Signal: \(signalName)
+            Note: Stack trace unavailable for signal-based crashes
+            
+            [ENVIRONMENT]
+            \(environmentDescription)
+            
+            [LAST BREADCRUMBS]
+            \(breadcrumbs.isEmpty ? "No breadcrumbs recorded." : breadcrumbs.joined(separator: "\n"))
+            """,
             observedAt: Date(),
             breadcrumbs: breadcrumbs.map { ["message": AnyEncodable($0)] },
-            environment: nil
+            environment: environment
         )
-        print("☠️ [SimpleCrashReporter] Sending minimal crash report: \(signalName)")
+        print("☠️ [SimpleCrashReporter] Sending signal crash report: \(signalName)")
         AppVitalityKit.shared.handleCrashSync(report: report)
+    }
+    
+    private static func formatEnvironmentForLog(_ env: [String: AnyEncodable]) -> String {
+        // Re-read from disk to get raw values for logging
+        guard let dir = crashDirectory else { return "Unable to read environment" }
+        let path = dir.appendingPathComponent(environmentFile)
+        
+        guard let data = try? Data(contentsOf: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let envDict = json["environment"] as? [String: Any] else {
+            return "Unable to read environment"
+        }
+        
+        var lines: [String] = []
+        for key in envDict.keys.sorted() {
+            if let value = envDict[key] {
+                lines.append("\(key): \(value)")
+            }
+        }
+        
+        if let timestamp = json["timestamp"] as? String {
+            lines.insert("snapshotTime: \(timestamp)", at: 0)
+        }
+        
+        return lines.joined(separator: "\n")
     }
     
     // MARK: - Breadcrumbs
@@ -418,4 +569,3 @@ public class SimpleCrashReporter {
         return CrashContext(description: description, data: data)
     }
 }
-
