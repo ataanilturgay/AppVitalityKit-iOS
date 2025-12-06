@@ -13,23 +13,3 @@ public protocol AppVitalityDelegate: AnyObject {
     func didDetectCrash(_ log: String)
 }
 
-public enum AppVitalityEvent {
-    /// FPS drop (UI Lag)
-    case fpsDrop(fps: Double, isLowPowerMode: Bool)
-    
-    /// High CPU usage
-    case highCPU(usage: Double)
-    
-    /// Device overheating
-    case thermalStateCritical(state: String)
-    
-    /// Inefficient network usage (Background Fetch, etc.)
-    case inefficientNetwork(url: String, reason: String)
-    
-    /// Main thread freeze (Hang)
-    case uiHang(duration: TimeInterval)
-    
-    /// High Memory Usage
-    case highMemory(usedMB: Double)
-}
-
