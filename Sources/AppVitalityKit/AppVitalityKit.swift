@@ -68,6 +68,9 @@ public class AppVitalityKit {
         
         /// Custom endpoint (nil = use default AppVitality API)
         public var customEndpoint: URL?
+
+        /// Enable verbose debug logging (events, crashes enqueue)
+        public var enableDebugLogging: Bool
         
         /// Default options with recommended features
         public init(
@@ -75,13 +78,15 @@ public class AppVitalityKit {
             policy: PowerPolicy = .moderate,
             flushInterval: TimeInterval = 10,
             maxBatchSize: Int = 20,
-            customEndpoint: URL? = nil
+            customEndpoint: URL? = nil,
+            enableDebugLogging: Bool = false
         ) {
             self.features = features
             self.policy = policy
             self.flushInterval = flushInterval
             self.maxBatchSize = maxBatchSize
             self.customEndpoint = customEndpoint
+            self.enableDebugLogging = enableDebugLogging
         }
         
         /// Convenience: All features enabled
@@ -149,6 +154,8 @@ public class AppVitalityKit {
         self.apiKey = apiKey
         self.options = options
         self.isConfigured = true
+        debugLog("Configuring with endpoint: \(options.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
+        debugLog("Features: \(options.features.map { \"\($0)\" }.joined(separator: \",\"))")
 
         // Setup cloud uploader
         let endpoint = options.customEndpoint ?? Self.defaultEndpoint
@@ -239,11 +246,13 @@ public class AppVitalityKit {
     // MARK: - Internal Event Handling
     
     func handle(event: AppVitalityEvent) {
+        debugLog("Enqueue event: \(event.type)")
         uploader?.enqueue(event: event)
         delegate?.didDetectEvent(event)
     }
 
     func handleCrash(report: AppVitalityCrashReport) {
+        debugLog("Enqueue crash: \(report.title)")
         delegate?.didDetectCrash(report.logString)
         uploader?.enqueueCrashReport(title: report.title,
                                      stackTrace: report.stackTrace,
@@ -255,6 +264,11 @@ public class AppVitalityKit {
     func handleLegacyCrashLog(_ log: String) {
         delegate?.didDetectCrash(log)
         uploader?.enqueueCrash(log)
+    }
+
+    private func debugLog(_ message: String) {
+        guard options?.enableDebugLogging == true else { return }
+        print("🔍 AppVitalityKit DEBUG: \(message)")
     }
 }
 
