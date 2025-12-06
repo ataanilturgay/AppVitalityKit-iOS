@@ -245,6 +245,32 @@ public class AppVitalityKit {
         handle(event: event)
     }
     
+    /// Log a custom event with Any parameters (convenience overload)
+    /// - Parameters:
+    ///   - name: Name of the event (e.g., "user_purchase")
+    ///   - parameters: Dictionary with any values (will be wrapped in AnyEncodable)
+    public func log(event name: String, parameters: [String: Any]) {
+        let wrapped = parameters.mapValues { AnyEncodable($0) }
+        log(event: name, parameters: wrapped)
+    }
+    
+    /// Log a custom event with an Encodable object
+    /// - Parameters:
+    ///   - name: Name of the event (e.g., "user_purchase")
+    ///   - object: Any Encodable object (will be converted to dictionary)
+    public func log<T: Encodable>(event name: String, object: T) {
+        do {
+            let data = try JSONEncoder().encode(object)
+            if let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                log(event: name, parameters: dict)
+            } else {
+                log(event: name, parameters: ["value": AnyEncodable(String(describing: object))])
+            }
+        } catch {
+            log(event: name, parameters: ["value": AnyEncodable(String(describing: object))])
+        }
+    }
+    
     /// Report a crash before calling fatalError
     /// This ensures the crash is saved to disk before the app terminates
     /// - Parameters:
