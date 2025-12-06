@@ -4,7 +4,7 @@ public enum AppVitalityEvent {
     // Performance Events
     case fpsDrop(fps: Double, isLowPowerMode: Bool)
     case highCPU(usage: Double)
-    case thermalStateCritical(state: Int)
+    case thermalStateCritical(state: Int, label: String?)
     case inefficientNetwork(url: String, reason: String)
     case uiHang(duration: Double)
     case highMemory(usedMB: Double)
@@ -42,8 +42,12 @@ extension AppVitalityEvent {
             return ["fps": AnyEncodable(fps), "isLowPowerMode": AnyEncodable(isLowPowerMode)]
         case let .highCPU(usage):
             return ["usage": AnyEncodable(usage)]
-        case let .thermalStateCritical(state):
-            return ["state": AnyEncodable(state)]
+        case let .thermalStateCritical(state, label):
+            var payload: [String: AnyEncodable] = ["state": AnyEncodable(state)]
+            if let label = label {
+                payload["state_label"] = AnyEncodable(label)
+            }
+            return payload
         case let .inefficientNetwork(url, reason):
             return ["url": AnyEncodable(url), "reason": AnyEncodable(reason)]
         case let .uiHang(duration):

@@ -43,7 +43,7 @@ public class CPUMonitor {
             return
         }
         
-        AppVitalityKit.shared.handle(event: .thermalStateCritical(state: stateString))
+        AppVitalityKit.shared.handle(event: .thermalStateCritical(state: state.rawValue, label: stateString))
     }
     
     private func checkCPU() {

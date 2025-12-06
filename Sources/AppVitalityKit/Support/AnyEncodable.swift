@@ -47,7 +47,7 @@ public struct AnyEncodable: Encodable {
         switch CFNumberGetType(number as CFNumber) {
         case .charType:
             try container.encode(number.boolValue)
-        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type, .shortType, .longType, .longLongType, .cfIndexType, .nsIntegerType:
+        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type, .shortType, .longType, .longLongType, .cfIndexType, .nsIntegerType, .intType:
             try container.encode(number.intValue)
         case .floatType, .float32Type, .float64Type, .doubleType, .cgFloatType:
             try container.encode(number.doubleValue)
