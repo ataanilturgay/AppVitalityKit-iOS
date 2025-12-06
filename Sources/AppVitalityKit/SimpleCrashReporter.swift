@@ -59,8 +59,11 @@ public class SimpleCrashReporter {
             environment: context.data
         )
 
-        AppVitalityKit.shared.handleCrash(report: report)
+        // Save crash log to disk immediately (synchronous)
         saveCrashLog(crashLog)
+
+        // Report crash and force immediate flush (synchronous)
+        AppVitalityKit.shared.handleCrashSync(report: report)
     }
 
     fileprivate static func handleSignal(_ signal: Int32) {
