@@ -220,6 +220,11 @@ final class AppVitalityUploader {
         guard let body = try? encoder.encode(data) else { return }
         request.httpBody = body
 
+        if let json = String(data: body, encoding: .utf8), AppVitalityKit.shared.currentOptions?.enableDebugLogging == true {
+            print("🔍 AppVitalityKit DEBUG: Sending async request to \(request.url?.absoluteString ?? "")")
+            print("🔍 AppVitalityKit DEBUG: Body: \(json)")
+        }
+
         session.dataTask(with: request).resume()
     }
 
@@ -233,6 +238,11 @@ final class AppVitalityUploader {
         guard let body = try? encoder.encode(data) else { return false }
         request.httpBody = body
 
+        if let json = String(data: body, encoding: .utf8), AppVitalityKit.shared.currentOptions?.enableDebugLogging == true {
+             print("🔍 AppVitalityKit DEBUG: Sending SYNC request to \(request.url?.absoluteString ?? "")")
+             print("🔍 AppVitalityKit DEBUG: Body: \(json)")
+        }
+
         let semaphore = DispatchSemaphore(value: 0)
         var success = false
 
@@ -244,6 +254,9 @@ final class AppVitalityUploader {
             if let http = response as? HTTPURLResponse {
                 if (200..<300).contains(http.statusCode) && error == nil {
                     success = true
+                    if AppVitalityKit.shared.currentOptions?.enableDebugLogging == true {
+                         print("🔍 AppVitalityKit DEBUG: Sync send success (Status: \(http.statusCode))")
+                    }
                 } else {
                     print("☠️ [AppVitalityKit] Sync send failed with status: \(http.statusCode)")
                 }
