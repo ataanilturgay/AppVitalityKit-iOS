@@ -97,8 +97,8 @@ public class AppVitalityKit {
     
     // MARK: - Internal Types
     
-    /// Default API endpoint
-    public static let defaultEndpoint = URL(string: "https://api.appvitality.io/v1/events")!
+    /// Default API endpoint (base URL, paths appended by uploader)
+    public static let defaultEndpoint = URL(string: "https://api.appvitality.io")!
 
     private var isConfigured = false
     private var apiKey: String?
