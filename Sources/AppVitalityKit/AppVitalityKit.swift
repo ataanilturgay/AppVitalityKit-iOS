@@ -272,10 +272,8 @@ public class AppVitalityKit {
             environment: nil
         )
         
-        handleCrash(report: report)
-        
-        // Force immediate flush to disk
-        uploader?.flushCrashesSync()
+        // Use sync handler to ensure disk write before fatalError
+        handleCrashSync(report: report)
     }
 
     /// Access to current options (Read-only)
