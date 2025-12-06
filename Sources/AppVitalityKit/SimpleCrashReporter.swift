@@ -1,14 +1,54 @@
 import Foundation
 import UIKit
+import Darwin
 
 // MARK: - C-level signal handler (async-signal-safe)
 // This is called directly from the OS, must be minimal and safe
 
 private var previousHandlers: [Int32: (@convention(c) (Int32) -> Void)?] = [:]
 
+// Pre-computed crash directory path (set during start())
+private var crashMarkerPath: UnsafeMutablePointer<CChar>?
+
 private let cSignalHandler: @convention(c) (Int32) -> Void = { signal in
     // Write crash marker to disk using POSIX (async-signal-safe)
-    SimpleCrashReporter.writeCrashMarkerSync(signal: signal)
+    // CRITICAL: Do NOT use any Swift/Obj-C objects here - only C functions
+    
+    guard let path = crashMarkerPath else { return }
+    
+    // Create simple marker content (just signal number as ASCII)
+    var buffer: [CChar] = Array(repeating: 0, count: 32)
+    
+    // Write "SIGNAL:" prefix
+    let prefix: [CChar] = [0x53, 0x49, 0x47, 0x4E, 0x41, 0x4C, 0x3A] // "SIGNAL:"
+    for (i, c) in prefix.enumerated() {
+        buffer[i] = c
+    }
+    
+    // Convert signal number to ASCII digits
+    var sig = signal
+    var digits: [CChar] = []
+    if sig == 0 {
+        digits = [0x30] // "0"
+    } else {
+        while sig > 0 {
+            digits.insert(CChar(0x30 + (sig % 10)), at: 0)
+            sig /= 10
+        }
+    }
+    
+    for (i, d) in digits.enumerated() {
+        buffer[7 + i] = d
+    }
+    buffer[7 + digits.count] = 0x0A // newline
+    
+    // Open file with POSIX
+    let fd = Darwin.open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+    if fd >= 0 {
+        _ = Darwin.write(fd, buffer, strlen(buffer))
+        Darwin.fsync(fd)
+        Darwin.close(fd)
+    }
     
     // Call previous handler if exists
     if let previous = previousHandlers[signal] {
@@ -34,6 +74,9 @@ public class SimpleCrashReporter {
     public static func start() {
         print("☠️ [SimpleCrashReporter] Starting crash reporter...")
         
+        // 0. Pre-compute crash marker path for signal handler (MUST be done before installing handlers)
+        setupCrashMarkerPath()
+        
         // 1. Check for previous crash FIRST (before installing new handlers)
         checkPreviousCrash()
         
@@ -50,9 +93,26 @@ public class SimpleCrashReporter {
         installSignalHandler(SIGTRAP)
         
         // 4. Periodically save breadcrumbs to disk (so we have them after crash)
-        saveBreadcrumbsToDisPeriodically()
+        saveBreadcrumbsToDiskPeriodically()
         
         print("☠️ [SimpleCrashReporter] Crash reporter ready")
+    }
+    
+    // MARK: - Setup Crash Marker Path
+    
+    private static func setupCrashMarkerPath() {
+        guard let dir = crashDirectory else {
+            print("☠️ [SimpleCrashReporter] ERROR: Could not create crash directory")
+            return
+        }
+        
+        let markerPath = dir.appendingPathComponent(crashMarkerFile).path
+        
+        // Allocate persistent C string for signal handler
+        let cString = strdup(markerPath)
+        crashMarkerPath = cString
+        
+        print("☠️ [SimpleCrashReporter] Crash marker path: \(markerPath)")
     }
     
     // MARK: - Signal Installation (sigaction)
@@ -68,28 +128,28 @@ public class SimpleCrashReporter {
         if sigaction(sig, &newAction, &oldAction) == 0 {
             // Store previous handler for chaining
             previousHandlers[sig] = oldAction.__sigaction_u.__sa_handler
+            print("☠️ [SimpleCrashReporter] Installed handler for signal \(sig)")
+        } else {
+            print("☠️ [SimpleCrashReporter] Failed to install handler for signal \(sig)")
         }
     }
     
-    // MARK: - Async-Signal-Safe Crash Marker (POSIX write)
+    // MARK: - Async-Signal-Safe Crash Marker (POSIX write) - Called from Swift code only
     
     static func writeCrashMarkerSync(signal: Int32) {
-        // Get crash directory path
         guard let dir = crashDirectory else { return }
         let markerPath = dir.appendingPathComponent(crashMarkerFile).path
         
-        // Create marker content with signal info
         let timestamp = Date().timeIntervalSince1970
         let content = "SIGNAL:\(signal)\nTIME:\(timestamp)\n"
         
-        // Use POSIX write (async-signal-safe)
         markerPath.withCString { pathPtr in
             let fd = Darwin.open(pathPtr, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
             if fd >= 0 {
                 content.withCString { dataPtr in
                     _ = Darwin.write(fd, dataPtr, strlen(dataPtr))
                 }
-                Darwin.fsync(fd) // Force flush to disk
+                Darwin.fsync(fd)
                 Darwin.close(fd)
             }
         }
@@ -97,12 +157,19 @@ public class SimpleCrashReporter {
     
     // MARK: - Crash Directory
     
+    private static var _crashDirectory: URL?
+    
     private static var crashDirectory: URL? {
+        if let dir = _crashDirectory {
+            return dir
+        }
+        
         guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return nil
         }
         let dir = cacheDir.appendingPathComponent("AppVitality/Crashes")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        _crashDirectory = dir
         return dir
     }
     
@@ -172,13 +239,15 @@ public class SimpleCrashReporter {
         let markerPath = dir.appendingPathComponent(crashMarkerFile)
         let dataPath = dir.appendingPathComponent(crashDataFile)
         
+        print("☠️ [SimpleCrashReporter] Checking for crash marker at: \(markerPath.path)")
+        
         // Check for crash marker
         if FileManager.default.fileExists(atPath: markerPath.path) {
-            print("☠️ [SimpleCrashReporter] Crash marker found - previous session crashed!")
+            print("☠️ [SimpleCrashReporter] ⚠️ CRASH MARKER FOUND - previous session crashed!")
             
             // Read marker content
             if let markerContent = try? String(contentsOf: markerPath, encoding: .utf8) {
-                print("☠️ [SimpleCrashReporter] Marker: \(markerContent)")
+                print("☠️ [SimpleCrashReporter] Marker content: \(markerContent)")
                 
                 // Parse signal from marker
                 var signalName = "Unknown Signal"
@@ -190,40 +259,52 @@ public class SimpleCrashReporter {
                 
                 // Check if we have detailed crash data
                 if FileManager.default.fileExists(atPath: dataPath.path),
-                   let data = try? Data(contentsOf: dataPath),
-                   let report = try? JSONDecoder().decode(AppVitalityCrashReport.self, from: data) {
-                    // We have detailed data, send it
-                    print("☠️ [SimpleCrashReporter] Sending detailed crash report: \(report.title)")
-                    AppVitalityKit.shared.handleCrashSync(report: report)
+                   let data = try? Data(contentsOf: dataPath) {
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    if let report = try? decoder.decode(AppVitalityCrashReport.self, from: data) {
+                        // We have detailed data, send it
+                        print("☠️ [SimpleCrashReporter] Sending detailed crash report: \(report.title)")
+                        AppVitalityKit.shared.handleCrashSync(report: report)
+                    } else {
+                        print("☠️ [SimpleCrashReporter] Could not decode crash data, sending minimal report")
+                        sendMinimalReport(signalName: signalName)
+                    }
                 } else {
                     // Only have marker, create minimal report from saved breadcrumbs
-                    let breadcrumbs = loadBreadcrumbsFromDisk()
-                    let report = AppVitalityCrashReport(
-                        title: signalName,
-                        stackTrace: "Stack trace not available (captured from signal)",
-                        logString: "[CRASH REPORT - SIGNAL]\nSignal: \(signalName)\nNote: Detailed stack trace unavailable",
-                        observedAt: Date(),
-                        breadcrumbs: breadcrumbs.map { ["message": AnyEncodable($0)] },
-                        environment: nil
-                    )
-                    print("☠️ [SimpleCrashReporter] Sending minimal crash report: \(signalName)")
-                    AppVitalityKit.shared.handleCrashSync(report: report)
+                    print("☠️ [SimpleCrashReporter] No detailed crash data, sending minimal report")
+                    sendMinimalReport(signalName: signalName)
                 }
             }
             
             // Clean up marker and data files
             try? FileManager.default.removeItem(at: markerPath)
             try? FileManager.default.removeItem(at: dataPath)
+            print("☠️ [SimpleCrashReporter] Cleaned up crash files")
         } else {
             print("☠️ [SimpleCrashReporter] No crash marker found - clean start")
         }
+    }
+    
+    private static func sendMinimalReport(signalName: String) {
+        let breadcrumbs = loadBreadcrumbsFromDisk()
+        let report = AppVitalityCrashReport(
+            title: signalName,
+            stackTrace: "Stack trace not available (captured from signal)",
+            logString: "[CRASH REPORT - SIGNAL]\nSignal: \(signalName)\nNote: Detailed stack trace unavailable",
+            observedAt: Date(),
+            breadcrumbs: breadcrumbs.map { ["message": AnyEncodable($0)] },
+            environment: nil
+        )
+        print("☠️ [SimpleCrashReporter] Sending minimal crash report: \(signalName)")
+        AppVitalityKit.shared.handleCrashSync(report: report)
     }
     
     // MARK: - Breadcrumbs Persistence
     
     private static let breadcrumbsFile = "appvitality_breadcrumbs.txt"
     
-    private static func saveBreadcrumbsToDisPeriodically() {
+    private static func saveBreadcrumbsToDiskPeriodically() {
         // Save breadcrumbs every 5 seconds
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             saveBreadcrumbsToDisk()
