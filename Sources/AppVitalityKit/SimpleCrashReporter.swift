@@ -22,6 +22,8 @@ public class SimpleCrashReporter {
         signal(SIGFPE, cSignalHandler)
         signal(SIGBUS, cSignalHandler)
         signal(SIGPIPE, cSignalHandler)
+        signal(SIGTRAP, cSignalHandler) // Catch Swift runtime errors (force unwrap etc.) in debug mode
+
 
         // 3. Check Previous Crash
         checkLastCrash()
@@ -70,6 +72,7 @@ public class SimpleCrashReporter {
         case SIGFPE:  signalName = "SIGFPE (Floating Point Exception)"
         case SIGBUS:  signalName = "SIGBUS (Bus Error)"
         case SIGPIPE: signalName = "SIGPIPE (Broken Pipe)"
+        case SIGTRAP: signalName = "SIGTRAP (Trace/Breakpoint Trap)"
         default: break
         }
 
