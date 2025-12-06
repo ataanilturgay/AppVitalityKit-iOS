@@ -179,31 +179,43 @@ public class SimpleCrashReporter {
         print("☠️ [SimpleCrashReporter] Exception caught: \(exception.name)")
         
         let context = generateContextSnapshot()
-        let breadcrumbs = BreadcrumbLogger.shared.getLogs()
-        let stackTrace = exception.callStackSymbols.joined(separator: "\n")
-
+        let breadcrumbEntries = BreadcrumbLogger.shared.getLogEntries()
+        let stackSymbols = exception.callStackSymbols
+        
+        // Format stack trace for readability
+        let formattedStackTrace = StackTraceFormatter.shared.format(stackSymbols)
+        let rawStackTrace = stackSymbols.joined(separator: "\n")
+        
+        // Generate human-readable summary
+        let summary = StackTraceFormatter.shared.generateSummary(
+            title: exception.name.rawValue,
+            reason: exception.reason,
+            stackSymbols: stackSymbols,
+            breadcrumbs: breadcrumbEntries
+        )
+        
+        // Full crash log
         let crashLog = """
-        [CRASH REPORT - EXCEPTION]
-        Date: \(Date())
-        Name: \(exception.name)
-        Reason: \(exception.reason ?? "Unknown")
-
-        [ENVIRONMENT]
+        \(summary)
+        
+        [FULL ENVIRONMENT]
         \(context.description)
-
-        [BREADCRUMBS (Last Actions)]
-        \(breadcrumbs.isEmpty ? "No breadcrumbs recorded." : breadcrumbs)
-
-        [STACK TRACE]
-        \(stackTrace)
+        
+        [ALL BREADCRUMBS]
+        \(breadcrumbEntries.isEmpty ? "No breadcrumbs recorded." : breadcrumbEntries.joined(separator: "\n"))
+        
+        [RAW STACK TRACE]
+        \(rawStackTrace)
         """
+        
+        print(summary) // Print readable summary to console
 
         let report = AppVitalityCrashReport(
             title: exception.name.rawValue,
-            stackTrace: stackTrace,
+            stackTrace: formattedStackTrace,
             logString: crashLog,
             observedAt: Date(),
-            breadcrumbs: BreadcrumbLogger.shared.getLogEntries().map { ["message": AnyEncodable($0)] },
+            breadcrumbs: breadcrumbEntries.map { ["message": AnyEncodable($0)] },
             environment: context.data
         )
 
@@ -404,3 +416,4 @@ public class SimpleCrashReporter {
         return CrashContext(description: description, data: data)
     }
 }
+

@@ -167,6 +167,9 @@ final class AppVitalityUploader {
             print("☠️ [AppVitalityKit] Crash sent successfully")
             // Successfully sent, remove from disk
             removeCrashesFromDisk([payload])
+            // Clear breadcrumbs after successful send
+            BreadcrumbLogger.shared.clear()
+            print("☠️ [AppVitalityKit] Breadcrumbs cleared after crash report")
         }
     }
 
@@ -360,6 +363,9 @@ final class AppVitalityUploader {
             if !crashBuffer.isEmpty {
                 print("☠️ [AppVitalityKit] Sending \(crashBuffer.count) pending crash(es)...")
                 flushCrashes()
+                // Clear old breadcrumbs from previous session
+                BreadcrumbLogger.shared.clear()
+                print("☠️ [AppVitalityKit] Old breadcrumbs cleared")
             }
             
         } catch {
@@ -368,4 +374,3 @@ final class AppVitalityUploader {
     }
 
 }
-
