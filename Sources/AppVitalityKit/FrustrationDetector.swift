@@ -48,6 +48,7 @@ public final class FrustrationDetector {
             tapGesture.delaysTouchesEnded = false
             window.addGestureRecognizer(tapGesture)
             
+            print("😤 [AppVitalityKit] FrustrationDetector: Gesture recognizer installed on window")
             AppVitalityKit.shared.debugLog("FrustrationDetector: Gesture recognizer installed")
         }
     }
@@ -204,6 +205,7 @@ public final class FrustrationDetector {
         // Log to breadcrumbs
         BreadcrumbLogger.shared.logAction("dead_click", target: "\(viewType) @ \(screen ?? "unknown")")
         
+        print("🎯 [AppVitalityKit] Dead Click detected: \(viewType) on \(screen ?? "unknown")")
         AppVitalityKit.shared.debugLog("🎯 Dead Click detected: \(viewType) on \(screen ?? "unknown")")
     }
     
@@ -272,6 +274,7 @@ public final class FrustrationDetector {
         // Log critical breadcrumb
         BreadcrumbLogger.shared.logCritical("😤 Rage Tap: \(tapCount) taps @ \(screen ?? "unknown")")
         
+        print("😤 [AppVitalityKit] Rage Tap detected: \(tapCount) taps in \(rageTapTimeWindow)s on \(screen ?? "unknown")")
         AppVitalityKit.shared.debugLog("😤 Rage Tap detected: \(tapCount) taps in \(rageTapTimeWindow)s on \(screen ?? "unknown")")
     }
     
