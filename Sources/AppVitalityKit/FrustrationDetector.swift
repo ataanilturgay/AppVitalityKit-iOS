@@ -92,6 +92,13 @@ public final class FrustrationDetector {
         }
         
         let viewType = String(describing: type(of: view))
+        let viewId = view.accessibilityIdentifier
+        
+        // Skip system views (private UIKit classes)
+        if viewType.hasPrefix("_UI") {
+            AppVitalityKit.shared.debugLog("Dead click check: \(viewType) is system view, skipping")
+            return
+        }
         
         // Skip if the view is interactive
         if isInteractiveView(view) {
@@ -99,12 +106,25 @@ public final class FrustrationDetector {
             return
         }
         
-        // Check if it looks like the user expected interactivity
-        // (e.g., tapped on a label that looks like a button, or an image)
-        if looksClickable(view) {
-            reportDeadClick(view: view, location: location, screen: screen)
+        // 🧠 AUTO-LEARNING: Record this tap for pattern learning
+        // Even if we don't report it as dead click now, we're learning
+        let isLearned = TapPatternLearner.shared.recordTap(
+            viewType: viewType,
+            screen: screen,
+            viewId: viewId
+        )
+        
+        // Check if it looks like the user expected interactivity:
+        // 1. Heuristic rules (blue label, bordered view, etc.)
+        // 2. OR learned from user behavior (many users tapped this)
+        if looksClickable(view) || isLearned {
+            if isLearned {
+                AppVitalityKit.shared.debugLog("🧠 Dead click (learned): \(viewType) on \(screen ?? "unknown")")
+            }
+            reportDeadClick(view: view, location: location, screen: screen, isLearned: isLearned)
         } else {
-            AppVitalityKit.shared.debugLog("Dead click check: \(viewType) doesn't look clickable")
+            let tapCount = TapPatternLearner.shared.getTapCount(viewType: viewType, screen: screen, viewId: viewId)
+            AppVitalityKit.shared.debugLog("Dead click check: \(viewType) doesn't look clickable (tap count: \(tapCount)/5)")
         }
     }
     
@@ -182,14 +202,19 @@ public final class FrustrationDetector {
         return false
     }
     
-    private func reportDeadClick(view: UIView, location: CGPoint, screen: String?) {
+    private func reportDeadClick(view: UIView, location: CGPoint, screen: String?, isLearned: Bool = false) {
         let viewType = String(describing: type(of: view))
         let viewId = view.accessibilityIdentifier
+        
+        // Get tap count for context
+        let tapCount = TapPatternLearner.shared.getTapCount(viewType: viewType, screen: screen, viewId: viewId)
         
         var details: [String: AnyEncodable] = [
             "view_type": AnyEncodable(viewType),
             "location_x": AnyEncodable(Int(location.x)),
-            "location_y": AnyEncodable(Int(location.y))
+            "location_y": AnyEncodable(Int(location.y)),
+            "is_learned": AnyEncodable(isLearned),
+            "total_taps": AnyEncodable(tapCount)
         ]
         
         if let id = viewId {
@@ -209,6 +234,10 @@ public final class FrustrationDetector {
             screen: screen,
             elementText: extractText(from: view)
         )
+        
+        let learnedTag = isLearned ? " [LEARNED]" : ""
+        print("🎯 [AppVitalityKit] Dead Click detected\(learnedTag): \(viewType) on \(screen ?? "unknown")")
+        
         AppVitalityKit.shared.handle(event: event)
         
         // Log to breadcrumbs
