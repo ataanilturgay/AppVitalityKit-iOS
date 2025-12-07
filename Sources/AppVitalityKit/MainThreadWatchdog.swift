@@ -1,19 +1,41 @@
 import Foundation
 
 public class MainThreadWatchdog {
-    
+
     public static let shared = MainThreadWatchdog()
-    
+
     private var pingTimer: Timer?
     private let threshold: TimeInterval = 0.4 // 400ms (approximately 24 frames lost)
     private let semaphore = DispatchSemaphore(value: 0)
-    private var isRunning = false
-    
+
+    // Thread-safe running state using NSLock (iOS 11+ compatible)
+    private var _isRunning: Bool = false
+    private let lock = NSLock()
+
+    private var isRunning: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _isRunning
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _isRunning = newValue
+        }
+    }
+
     private init() {}
-    
+
     public func start() {
-        guard !isRunning else { return }
-        isRunning = true
+        // Atomically check and set isRunning
+        lock.lock()
+        if _isRunning {
+            lock.unlock()
+            return
+        }
+        _isRunning = true
+        lock.unlock()
         
         // A structure that constantly pokes the main thread from the background
         // A real watchdog should work when main thread is blocked, so Timer should not be on main thread.

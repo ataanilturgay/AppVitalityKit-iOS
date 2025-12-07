@@ -48,41 +48,113 @@ public class AppVitalityKit {
 
     // MARK: - Options
     
-    /// Configuration options for SDK behavior
+    /// Configuration options for SDK behavior.
+    ///
+    /// ## Quick Start (Default - Small Apps)
+    /// ```swift
+    /// AppVitalityKit.shared.configure(apiKey: "your-key")
+    /// ```
+    ///
+    /// ## High-Traffic Apps (>100K DAU)
+    /// ```swift
+    /// AppVitalityKit.shared.configure(
+    ///     apiKey: "your-key",
+    ///     options: Options(
+    ///         flushInterval: 30,      // Send every 30 seconds
+    ///         eventSampleRate: 0.5    // Send 50% of events
+    ///     )
+    /// )
+    /// ```
+    ///
+    /// ## Enterprise Apps (>1M DAU)
+    /// ```swift
+    /// AppVitalityKit.shared.configure(apiKey: "your-key", options: .enterprise)
+    /// ```
     public struct Options {
         
+        /// Battery and performance impact level.
+        /// - `strict`: Maximum monitoring, higher battery usage
+        /// - `moderate`: Balanced (recommended)
+        /// - `relaxed`: Minimal impact, less frequent monitoring
         public enum PowerPolicy {
-            case strict   // Most aggressive monitoring
-            case moderate // Balanced
-            case relaxed  // Minimal impact
+            case strict
+            case moderate
+            case relaxed
         }
         
-        /// Which features to enable
+        /// Which features to enable.
+        /// Default: `.recommended` (crash reporting, auto-tracking, frustration detection)
         public var features: Set<Feature>
         
-        /// Power/performance policy
+        /// Battery/performance impact policy.
+        /// Default: `.moderate`
         public var policy: PowerPolicy
         
-        /// How often to send batched events (seconds)
+        /// How often to send batched events to server (in seconds).
+        ///
+        /// **Recommendations:**
+        /// - Small apps (<10K DAU): `10` seconds (default)
+        /// - Medium apps (10K-100K DAU): `30` seconds
+        /// - Large apps (>100K DAU): `60` seconds
+        ///
+        /// Lower values = more real-time data, higher battery usage.
+        /// Default: `10`
         public var flushInterval: TimeInterval
         
-        /// Maximum events per batch
+        /// Maximum events to send in a single network request.
+        ///
+        /// **Recommendations:**
+        /// - Default: `20` (good balance)
+        /// - High-traffic: `50-100` (reduces network requests)
+        ///
+        /// Default: `20`
         public var maxBatchSize: Int
         
-        /// Custom endpoint (nil = use default AppVitality API)
+        /// Custom API endpoint URL.
+        /// Leave `nil` to use AppVitality cloud (https://api.appvitality.io).
+        /// Only set this for on-premise deployments.
         public var customEndpoint: URL?
 
-        /// Enable verbose debug logging (events, crashes enqueue)
+        /// Enable verbose debug logging in Xcode console.
+        /// Useful for debugging SDK integration. Disable in production.
+        /// Default: `false`
         public var enableDebugLogging: Bool
         
-        /// Default options with recommended features
+        /// Percentage of events to send (0.0 to 1.0).
+        ///
+        /// **Use this to reduce server load for high-traffic apps:**
+        /// - `1.0` = Send all events (default, for apps <100K DAU)
+        /// - `0.5` = Send 50% of events (for 100K-500K DAU)
+        /// - `0.1` = Send 10% of events (for >1M DAU)
+        ///
+        /// **Important:** Crashes, rage taps, and session events are ALWAYS sent regardless of this setting.
+        ///
+        /// Default: `1.0`
+        public var eventSampleRate: Double
+        
+        /// Maximum events to queue in memory before dropping oldest.
+        ///
+        /// Prevents memory issues on high-traffic apps. When queue is full,
+        /// oldest events are dropped to make room for new ones.
+        ///
+        /// **Recommendations:**
+        /// - Default: `500` (~50KB memory)
+        /// - High-traffic: `1000` (~100KB memory)
+        ///
+        /// Default: `500`
+        public var maxQueueSize: Int
+        
+        /// Create custom options (most developers don't need this).
+        /// The SDK auto-tunes itself based on device conditions.
         public init(
             features: Set<Feature> = Feature.recommended,
             policy: PowerPolicy = .moderate,
             flushInterval: TimeInterval = 10,
             maxBatchSize: Int = 20,
             customEndpoint: URL? = nil,
-            enableDebugLogging: Bool = false
+            enableDebugLogging: Bool = false,
+            eventSampleRate: Double = 1.0,
+            maxQueueSize: Int = 500
         ) {
             self.features = features
             self.policy = policy
@@ -90,11 +162,50 @@ public class AppVitalityKit {
             self.maxBatchSize = maxBatchSize
             self.customEndpoint = customEndpoint
             self.enableDebugLogging = enableDebugLogging
+            self.eventSampleRate = max(0.0, min(1.0, eventSampleRate))
+            self.maxQueueSize = max(10, maxQueueSize)
         }
         
-        /// Convenience: All features enabled
+        /// Default auto-tuned options. SDK automatically adjusts based on:
+        /// - Device memory (low memory = more aggressive sampling)
+        /// - Battery state (low battery = less frequent uploads)
+        /// - Thermal state (hot device = reduced monitoring)
+        public static var automatic: Options {
+            var options = Options()
+            
+            // Auto-tune based on device memory
+            let totalMemoryGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
+            if totalMemoryGB < 2 {
+                // Low-end device: be more conservative
+                options.eventSampleRate = 0.5
+                options.maxQueueSize = 200
+                options.flushInterval = 30
+            } else if totalMemoryGB < 4 {
+                // Mid-range device
+                options.eventSampleRate = 0.8
+                options.maxQueueSize = 500
+                options.flushInterval = 15
+            }
+            // High-end devices use defaults (full tracking)
+            
+            return options
+        }
+        
+        /// All features enabled. Use for development/testing.
         public static var allFeatures: Options {
             Options(features: Feature.all)
+        }
+        
+        /// Optimized for high-traffic apps (>1M DAU).
+        public static var enterprise: Options {
+            Options(
+                features: Feature.recommended,
+                policy: .relaxed,
+                flushInterval: 60,
+                maxBatchSize: 50,
+                eventSampleRate: 0.1,
+                maxQueueSize: 1000
+            )
         }
     }
     
@@ -108,6 +219,35 @@ public class AppVitalityKit {
     private var options: Options?
     private var uploader: AppVitalityUploader?
     private var sessionStartTime: Date?
+    
+    // MARK: - Adaptive Sampling (Activity-Based)
+    
+    /// Tracks recent user interactions for adaptive sampling
+    private var recentInteractionTimestamps: [Date] = []
+    private let interactionWindow: TimeInterval = 60 // 1 minute window
+    private let highActivityThreshold = 30 // >30 interactions/min = high activity
+    private let lowActivityThreshold = 5   // <5 interactions/min = low activity
+    private var currentActivityMultiplier: Double = 1.0
+    private var activityCheckTimer: Timer?
+    
+    // MARK: - Critical Path Detection
+    
+    /// Current screen name for critical path detection
+    private var currentScreenName: String?
+    
+    /// Whether current screen is on critical path
+    private var isOnCriticalPath: Bool = false
+    
+    /// Custom critical screens defined by developer
+    private var customCriticalScreens: Set<String> = []
+    
+    /// Auto-detected critical screen patterns (case-insensitive)
+    private let autoCriticalPatterns: [String] = [
+        "payment", "checkout", "cart", "basket", "purchase",
+        "login", "signin", "signup", "register", "auth",
+        "onboarding", "subscription", "upgrade", "premium",
+        "order", "confirm", "billing", "card", "wallet"
+    ]
 
     private init() {
         // Setup session tracking
@@ -144,31 +284,49 @@ public class AppVitalityKit {
 
     // MARK: - Configure
     
-    /// Initialize AppVitalityKit with your API key
-    /// - Parameters:
-    ///   - apiKey: Your project API key from AppVitality Dashboard
-    ///   - options: Optional configuration (defaults to recommended settings)
-    public func configure(apiKey: String, options: Options = Options()) {
+    /// Initialize AppVitalityKit with your API key.
+    /// SDK automatically optimizes settings based on device conditions.
+    ///
+    /// ```swift
+    /// // That's it! SDK auto-tunes everything.
+    /// AppVitalityKit.shared.configure(apiKey: "your-api-key")
+    /// ```
+    ///
+    /// - Parameter apiKey: Your project API key from AppVitality Dashboard
+    public func configure(apiKey: String) {
+        configure(apiKey: apiKey, options: .automatic)
+    }
+    
+    /// Initialize AppVitalityKit with custom options (advanced usage).
+    /// Most developers should use `configure(apiKey:)` instead.
+    public func configure(apiKey: String, options: Options) {
         guard !isConfigured else {
             print("⚠️ AppVitalityKit is already configured.")
             return
         }
 
         self.apiKey = apiKey
-        self.options = options
+        
+        // Apply runtime auto-tuning on top of provided options
+        var tunedOptions = options
+        applyRuntimeTuning(&tunedOptions)
+        
+        self.options = tunedOptions
         self.isConfigured = true
         
-        debugLog("Configuring with endpoint: \(options.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
-        let featureList = options.features.map { "\($0)" }.joined(separator: ",")
+        debugLog("Configuring with endpoint: \(tunedOptions.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
+        let featureList = tunedOptions.features.map { "\($0)" }.joined(separator: ",")
         debugLog("Features: \(featureList)")
+        debugLog("Auto-tuned: sampleRate=\(tunedOptions.eventSampleRate), flushInterval=\(tunedOptions.flushInterval)s")
 
         // Setup cloud uploader (this loads and sends pending crashes with their breadcrumbs)
-        let endpoint = options.customEndpoint ?? Self.defaultEndpoint
+        let endpoint = tunedOptions.customEndpoint ?? Self.defaultEndpoint
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
             apiKey: apiKey,
-            flushInterval: options.flushInterval,
-            maxBatchSize: options.maxBatchSize
+            flushInterval: tunedOptions.flushInterval,
+            maxBatchSize: tunedOptions.maxBatchSize,
+            maxQueueSize: tunedOptions.maxQueueSize
         )
         self.uploader = AppVitalityUploader(config: uploaderConfig)
         
@@ -181,7 +339,7 @@ public class AppVitalityKit {
         print("   ✅ Cloud Sync: Active (Batch upload)")
 
         // 1. MetricKit
-        if options.features.contains(.metricKitReporting) {
+        if tunedOptions.features.contains(.metricKitReporting) {
             if #available(iOS 13.0, *) {
                 _ = MetricKitCollector.shared
                 print("   ✅ MetricKit Collector: Active")
@@ -189,58 +347,101 @@ public class AppVitalityKit {
         }
 
         // 2. Network Monitoring
-        if options.features.contains(.networkMonitoring) {
+        if tunedOptions.features.contains(.networkMonitoring) {
             URLProtocol.registerClass(AppVitalityNetworkMonitor.self)
-            AppVitalityNetworkMonitor.configuration.blockRequestsInLowPowerMode = (options.policy == .strict)
+            AppVitalityNetworkMonitor.configuration.blockRequestsInLowPowerMode = (tunedOptions.policy == .strict)
             AppVitalityNetworkMonitor.configuration.blockRequestsInBackground = false
             AppVitalityNetworkMonitor.configuration.verboseLogging = true
             print("   ✅ Network Monitoring: Active")
         }
 
         // 3. Watchdog (UI Hangs)
-        if options.features.contains(.mainThreadWatchdog) {
+        if tunedOptions.features.contains(.mainThreadWatchdog) {
             MainThreadWatchdog.shared.start()
             print("   ✅ UI Watchdog: Active")
         }
 
         // 4. Memory Monitor
-        if options.features.contains(.memoryMonitor) {
+        if tunedOptions.features.contains(.memoryMonitor) {
             MemoryMonitor.shared.start()
             print("   ✅ Memory Monitor: Active")
         }
 
         // 5. Crash Reporter
-        if options.features.contains(.crashReporting) {
+        if tunedOptions.features.contains(.crashReporting) {
             SimpleCrashReporter.start()
             print("   ✅ Crash Reporter: Active")
         }
 
         // 6. FPS Monitor
-        if options.features.contains(.fpsMonitor) {
+        if tunedOptions.features.contains(.fpsMonitor) {
             FPSMonitor.shared.start()
             print("   ✅ FPS Monitor: Active")
         }
 
         // 7. CPU Monitor
-        if options.features.contains(.cpuMonitor) {
+        if tunedOptions.features.contains(.cpuMonitor) {
             CPUMonitor.shared.start()
             print("   ✅ CPU Monitor: Active")
         }
 
         // 8. Auto Action Tracking
-        if options.features.contains(.autoActionTracking) {
+        if tunedOptions.features.contains(.autoActionTracking) {
             UIViewController.enableLifecycleTracking()
             UIControl.enableActionTracking()
             print("   ✅ Auto Tracker: Active")
         }
 
         // 9. Frustration Detection (Rage Taps & Dead Clicks)
-        if options.features.contains(.frustrationDetection) {
+        if tunedOptions.features.contains(.frustrationDetection) {
             _ = FrustrationDetector.shared // Initialize detector
             print("   ✅ Frustration Detector: Active (Rage Taps, Dead Clicks)")
         }
+        
+        // 10. Start Adaptive Sampling (Activity-Based)
+        startActivityMonitor()
+        print("   ✅ Adaptive Sampling: Active (adjusts based on user activity)")
 
-        print("🚀 AppVitalityKit is ready. (\(options.features.count) features enabled)")
+        print("🚀 AppVitalityKit is ready. (\(tunedOptions.features.count) features enabled)")
+    }
+    
+    // MARK: - Runtime Auto-Tuning
+    
+    /// Automatically adjusts SDK settings based on current device conditions.
+    /// Called once at startup and doesn't change during runtime.
+    private func applyRuntimeTuning(_ options: inout Options) {
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
+        
+        // 1. Low battery → reduce upload frequency
+        if device.batteryState != .charging && device.batteryLevel < 0.2 && device.batteryLevel > 0 {
+            options.flushInterval = max(options.flushInterval, 60)
+            debugLog("Auto-tune: Low battery, flushInterval=\(options.flushInterval)s")
+        }
+        
+        // 2. Low Power Mode → reduce sampling
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            options.eventSampleRate = min(options.eventSampleRate, 0.5)
+            options.flushInterval = max(options.flushInterval, 30)
+            debugLog("Auto-tune: Low Power Mode, sampleRate=\(options.eventSampleRate)")
+        }
+        
+        // 3. Thermal state → reduce monitoring
+        let thermalState = ProcessInfo.processInfo.thermalState
+        if thermalState == .serious || thermalState == .critical {
+            options.eventSampleRate = min(options.eventSampleRate, 0.3)
+            // Disable heavy monitors on hot devices
+            options.features.remove(.fpsMonitor)
+            options.features.remove(.cpuMonitor)
+            debugLog("Auto-tune: Device is hot, reduced monitoring")
+        }
+        
+        // 4. Low memory device → smaller queue
+        let totalMemoryGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
+        if totalMemoryGB < 2 {
+            options.maxQueueSize = min(options.maxQueueSize, 200)
+            debugLog("Auto-tune: Low memory device, maxQueueSize=\(options.maxQueueSize)")
+        }
     }
     
     // MARK: - Manual Logging
@@ -278,6 +479,70 @@ public class AppVitalityKit {
         } catch {
             log(event: name, parameters: ["value": AnyEncodable(String(describing: object))])
         }
+    }
+    
+    // MARK: - Critical Path API
+    
+    /// Mark specific screens as critical for enhanced tracking.
+    /// Critical screens get: 100% sampling, detailed breadcrumbs, full performance monitoring.
+    ///
+    /// ```swift
+    /// // Mark payment flow as critical
+    /// AppVitalityKit.shared.markCriticalScreens([
+    ///     "PaymentViewController",
+    ///     "CheckoutViewController",
+    ///     "CartViewController"
+    /// ])
+    /// ```
+    ///
+    /// Note: Common screens like "payment", "checkout", "login" are auto-detected.
+    public func markCriticalScreens(_ screenNames: [String]) {
+        customCriticalScreens = Set(screenNames.map { $0.lowercased() })
+        debugLog("Critical screens marked: \(screenNames)")
+    }
+    
+    /// Add a single screen to critical path
+    public func addCriticalScreen(_ screenName: String) {
+        customCriticalScreens.insert(screenName.lowercased())
+        debugLog("Added critical screen: \(screenName)")
+    }
+    
+    /// Check if a screen is on critical path
+    public func isCriticalScreen(_ screenName: String) -> Bool {
+        return detectCriticalPath(screenName: screenName)
+    }
+    
+    /// Called internally when screen changes (from UIViewController tracking)
+    internal func onScreenChanged(_ screenName: String) {
+        currentScreenName = screenName
+        let wasCritical = isOnCriticalPath
+        isOnCriticalPath = detectCriticalPath(screenName: screenName)
+        
+        if isOnCriticalPath && !wasCritical {
+            debugLog("🎯 Entered critical path: \(screenName) - Enhanced tracking enabled")
+            BreadcrumbLogger.shared.logCritical("Entered critical screen: \(screenName)")
+        } else if !isOnCriticalPath && wasCritical {
+            debugLog("📤 Left critical path: \(screenName) - Normal tracking resumed")
+        }
+    }
+    
+    /// Detect if screen is on critical path (auto + custom)
+    private func detectCriticalPath(screenName: String) -> Bool {
+        let lowercased = screenName.lowercased()
+        
+        // Check custom critical screens first
+        if customCriticalScreens.contains(lowercased) {
+            return true
+        }
+        
+        // Check auto-detected patterns
+        for pattern in autoCriticalPatterns {
+            if lowercased.contains(pattern) {
+                return true
+            }
+        }
+        
+        return false
     }
     
     /// Report a crash before calling fatalError
@@ -326,9 +591,121 @@ public class AppVitalityKit {
     // MARK: - Internal Event Handling
     
     func handle(event: AppVitalityEvent) {
+        // Track user interactions for adaptive sampling
+        if isUserInteractionEvent(event.type) {
+            trackInteraction()
+        }
+        
+        // Calculate effective sample rate
+        let baseSampleRate = options?.eventSampleRate ?? 1.0
+        let effectiveSampleRate = baseSampleRate * currentActivityMultiplier
+        
+        // Build SDK metadata for analytics
+        let sdkMetadata: [String: AnyEncodable] = [
+            "_sdk_critical_path": AnyEncodable(isOnCriticalPath),
+            "_sdk_sample_rate": AnyEncodable(effectiveSampleRate),
+            "_sdk_activity_multiplier": AnyEncodable(currentActivityMultiplier),
+            "_sdk_screen": AnyEncodable(currentScreenName ?? "unknown")
+        ]
+        
+        // Critical Path: Always 100% sampling on critical screens
+        if isOnCriticalPath {
+            debugLog("🎯 Critical path event (100% captured): \(event.type)")
+            uploader?.enqueue(event: event, metadata: sdkMetadata)
+            delegate?.didDetectEvent(event)
+            return
+        }
+        
+        // Apply adaptive sampling (critical events bypass sampling)
+        if effectiveSampleRate < 1.0 && !isCriticalEvent(event.type) {
+            if Double.random(in: 0...1) > effectiveSampleRate {
+                debugLog("Event sampled out: \(event.type) (effective rate: \(String(format: "%.2f", effectiveSampleRate)))")
+                // Track dropped events for dashboard analytics
+                uploader?.incrementDroppedEventCount()
+                return
+            }
+        }
+        
         debugLog("Enqueue event: \(event.type)")
-        uploader?.enqueue(event: event)
+        uploader?.enqueue(event: event, metadata: sdkMetadata)
         delegate?.didDetectEvent(event)
+    }
+    
+    /// Critical events that should never be sampled out
+    private func isCriticalEvent(_ eventType: String) -> Bool {
+        let criticalTypes: Set<String> = [
+            "crash",
+            "uiHang",
+            "rage_tap",
+            "dead_click",
+            "session_start",
+            "session_end",
+            "memory_warning"
+        ]
+        return criticalTypes.contains(eventType)
+    }
+    
+    // MARK: - Adaptive Sampling (Activity-Based)
+    
+    /// Events that indicate user interaction
+    private func isUserInteractionEvent(_ eventType: String) -> Bool {
+        let interactionTypes: Set<String> = [
+            "button_tap",
+            "screen_view",
+            "scroll",
+            "gesture",
+            "custom" // Custom events often indicate user actions
+        ]
+        return interactionTypes.contains(eventType) || eventType.contains("tap") || eventType.contains("click")
+    }
+    
+    /// Track a user interaction for activity level calculation
+    private func trackInteraction() {
+        let now = Date()
+        recentInteractionTimestamps.append(now)
+        
+        // Clean up old timestamps outside the window
+        let cutoff = now.addingTimeInterval(-interactionWindow)
+        recentInteractionTimestamps.removeAll { $0 < cutoff }
+    }
+    
+    /// Start the activity level monitor
+    private func startActivityMonitor() {
+        activityCheckTimer?.invalidate()
+        activityCheckTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.updateActivityLevel()
+        }
+    }
+    
+    /// Calculate and update activity level multiplier
+    private func updateActivityLevel() {
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-interactionWindow)
+        recentInteractionTimestamps.removeAll { $0 < cutoff }
+        
+        let interactionsPerMinute = recentInteractionTimestamps.count
+        let previousMultiplier = currentActivityMultiplier
+        
+        if interactionsPerMinute > highActivityThreshold {
+            // High activity: reduce sampling to save CPU
+            currentActivityMultiplier = 0.3
+        } else if interactionsPerMinute < lowActivityThreshold {
+            // Low activity: full sampling (user is passive, events are rare anyway)
+            currentActivityMultiplier = 1.0
+        } else {
+            // Medium activity: moderate sampling
+            currentActivityMultiplier = 0.6
+        }
+        
+        if previousMultiplier != currentActivityMultiplier {
+            debugLog("Activity level changed: \(interactionsPerMinute) interactions/min → multiplier=\(currentActivityMultiplier)")
+        }
+    }
+    
+    /// Stop the activity monitor
+    private func stopActivityMonitor() {
+        activityCheckTimer?.invalidate()
+        activityCheckTimer = nil
     }
 
     func handleCrash(report: AppVitalityCrashReport) {

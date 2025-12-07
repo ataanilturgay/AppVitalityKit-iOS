@@ -8,6 +8,15 @@ final class AppVitalityUploader {
         let apiKey: String
         let flushInterval: TimeInterval
         let maxBatchSize: Int
+        let maxQueueSize: Int
+        
+        init(endpoint: URL, apiKey: String, flushInterval: TimeInterval = 10, maxBatchSize: Int = 20, maxQueueSize: Int = 500) {
+            self.endpoint = endpoint
+            self.apiKey = apiKey
+            self.flushInterval = flushInterval
+            self.maxBatchSize = maxBatchSize
+            self.maxQueueSize = maxQueueSize
+        }
     }
     
     // Cihaz ve Oturum Bilgileri
@@ -45,6 +54,9 @@ final class AppVitalityUploader {
     private var crashBuffer: [CrashPayload] = []
     private var timer: DispatchSourceTimer?
     
+    // Queue overflow tracking
+    private var droppedEventCount: Int = 0
+    
     // Static Session Data (Değişmezler)
     private let currentSession: SessionInfo
 
@@ -79,19 +91,41 @@ final class AppVitalityUploader {
         timer?.cancel()
     }
 
-    func enqueue(event: AppVitalityEvent) {
+    func enqueue(event: AppVitalityEvent, metadata: [String: AnyEncodable] = [:]) {
         queue.async { [weak self] in
             guard let self else { return }
+            
+            // Enforce max queue size to prevent memory issues
+            while self.eventsBuffer.count >= self.config.maxQueueSize {
+                self.eventsBuffer.removeFirst()
+                self.droppedEventCount += 1
+                if self.droppedEventCount % 100 == 0 {
+                    print("⚠️ [AppVitalityKit] Queue overflow: \(self.droppedEventCount) events dropped. Consider increasing flush frequency or reducing event volume.")
+                }
+            }
+            
+            // Merge event payload with SDK metadata
+            var mergedPayload = event.toPayload()
+            for (key, value) in metadata {
+                mergedPayload[key] = value
+            }
+            
             let payload = EventPayload(
                 eventType: event.type,
                 observedAt: Date(),
-                payload: event.toPayload(),
+                payload: mergedPayload,
                 session: self.currentSession
             )
             self.eventsBuffer.append(payload)
             if self.eventsBuffer.count >= self.config.maxBatchSize {
                 self.flushEvents()
             }
+        }
+    }
+    
+    func incrementDroppedEventCount() {
+        queue.async { [weak self] in
+            self?.droppedEventCount += 1
         }
     }
 

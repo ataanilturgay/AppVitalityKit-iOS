@@ -10,6 +10,16 @@ private var previousHandlers: [Int32: (@convention(c) (Int32) -> Void)?] = [:]
 // Pre-computed crash directory path (set during start())
 private var crashMarkerPath: UnsafeMutablePointer<CChar>?
 
+// MARK: - Memory Cleanup for crashMarkerPath
+// Note: This cleanup is called when the app terminates normally
+// During a crash, the memory is reclaimed by the OS anyway
+private func cleanupCrashMarkerPath() {
+    if let path = crashMarkerPath {
+        free(path)
+        crashMarkerPath = nil
+    }
+}
+
 private let cSignalHandler: @convention(c) (Int32) -> Void = { signal in
     // Write crash marker to disk using POSIX (async-signal-safe)
     // CRITICAL: Do NOT use any Swift/Obj-C objects here - only C functions
@@ -122,13 +132,15 @@ public class SimpleCrashReporter {
         ) { _ in
             saveEnvironmentSnapshot()
         }
-        
+
         NotificationCenter.default.addObserver(
             forName: UIApplication.willTerminateNotification,
             object: nil,
             queue: .main
         ) { _ in
             saveEnvironmentSnapshot()
+            // Cleanup allocated memory on normal termination
+            cleanupCrashMarkerPath()
         }
         
         NotificationCenter.default.addObserver(
@@ -320,13 +332,17 @@ public class SimpleCrashReporter {
 
         // Save crash data to disk immediately
         saveCrashDataSync(report: report)
-        
+
         // Try to send (best effort)
         AppVitalityKit.shared.handleCrashSync(report: report)
-        
-        // Terminate the app properly after handling
-        // Don't re-raise - just kill the process
-        kill(getpid(), SIGKILL)
+
+        // Terminate the process properly
+        // abort() is the correct way to terminate after an uncaught exception
+        // It generates a SIGABRT which allows the system to create a proper crash log
+        // Note: Don't use exit() as it doesn't generate crash reports
+        // Note: Don't just return - NSSetUncaughtExceptionHandler docs say the app
+        // will terminate after the handler returns, but abort() is more reliable
+        abort()
     }
     
     // MARK: - Save Crash Data to Disk (Synchronous)

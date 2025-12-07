@@ -24,6 +24,9 @@ extension UIViewController {
         
         // Filter out system classes like UIInputWindowController
         if !screenName.hasPrefix("UI") && !screenName.hasPrefix("_") {
+            // Notify SDK of screen change for Critical Path Detection
+            AppVitalityKit.shared.onScreenChanged(screenName)
+            
             // Log breadcrumb for crash debugging (CRITICAL - persisted immediately)
             BreadcrumbLogger.shared.logScreenView(screenName)
             
