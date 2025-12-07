@@ -86,10 +86,16 @@ public final class FrustrationDetector {
     // MARK: - Dead Click Detection
     
     private func checkDeadClick(at location: CGPoint, hitView: UIView?, screen: String?) {
-        guard let view = hitView else { return }
+        guard let view = hitView else { 
+            AppVitalityKit.shared.debugLog("Dead click check: No hit view")
+            return 
+        }
+        
+        let viewType = String(describing: type(of: view))
         
         // Skip if the view is interactive
         if isInteractiveView(view) {
+            AppVitalityKit.shared.debugLog("Dead click check: \(viewType) is interactive, skipping")
             return
         }
         
@@ -97,6 +103,8 @@ public final class FrustrationDetector {
         // (e.g., tapped on a label that looks like a button, or an image)
         if looksClickable(view) {
             reportDeadClick(view: view, location: location, screen: screen)
+        } else {
+            AppVitalityKit.shared.debugLog("Dead click check: \(viewType) doesn't look clickable")
         }
     }
     
@@ -131,19 +139,20 @@ public final class FrustrationDetector {
         if view is UIImageView {
             // Check if it has meaningful size (not tiny icons)
             if view.bounds.width > 30 && view.bounds.height > 30 {
+                AppVitalityKit.shared.debugLog("looksClickable: UIImageView with size \(view.bounds.width)x\(view.bounds.height)")
                 return true
             }
         }
         
         // UILabel that looks like a link
         if let label = view as? UILabel {
-            // Check for link-like text color (blue)
+            // Check for link-like text color (blue-ish)
             if let textColor = label.textColor {
-                var hue: CGFloat = 0
-                var saturation: CGFloat = 0
-                textColor.getHue(&hue, saturation: &saturation, brightness: nil, alpha: nil)
-                // Blue-ish color
-                if hue > 0.55 && hue < 0.7 && saturation > 0.3 {
+                var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0
+                textColor.getRed(&red, green: &green, blue: &blue, alpha: nil)
+                // Blue color: more blue than red and green
+                if blue > 0.5 && blue > red && blue > green {
+                    AppVitalityKit.shared.debugLog("looksClickable: UILabel with blue text color")
                     return true
                 }
             }
