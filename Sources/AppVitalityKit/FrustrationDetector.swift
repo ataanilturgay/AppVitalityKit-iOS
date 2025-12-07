@@ -248,9 +248,6 @@ public final class FrustrationDetector {
         
         // Log to breadcrumbs
         BreadcrumbLogger.shared.logAction("dead_click", target: "\(viewType) @ \(screen ?? "unknown")")
-        
-        print("🎯 [AppVitalityKit] Dead Click detected: \(viewType) on \(screen ?? "unknown")")
-        AppVitalityKit.shared.debugLog("🎯 Dead Click detected: \(viewType) on \(screen ?? "unknown")")
     }
     
     private func extractText(from view: UIView) -> String? {
