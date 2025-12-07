@@ -238,16 +238,9 @@ public class AppVitalityKit {
     /// Whether current screen is on critical path
     private var isOnCriticalPath: Bool = false
     
-    /// Custom critical screens defined by developer
-    private var customCriticalScreens: Set<String> = []
-    
-    /// Auto-detected critical screen patterns (case-insensitive)
-    private let autoCriticalPatterns: [String] = [
-        "payment", "checkout", "cart", "basket", "purchase",
-        "login", "signin", "signup", "register", "auth",
-        "onboarding", "subscription", "upgrade", "premium",
-        "order", "confirm", "billing", "card", "wallet"
-    ]
+    /// Critical screens defined by developer (no auto-detection)
+    /// Developer knows which screens are truly business-critical
+    private var criticalScreens: Set<String> = []
 
     private init() {
         // Setup session tracking
@@ -486,37 +479,55 @@ public class AppVitalityKit {
     /// Mark specific screens as critical for enhanced tracking.
     /// Critical screens get: 100% sampling, detailed breadcrumbs, full performance monitoring.
     ///
+    /// Only YOU know which screens are truly business-critical.
+    /// A user viewing cart 500 times is normal, but abandoning at payment confirmation is critical.
+    ///
     /// ```swift
-    /// // Mark payment flow as critical
+    /// // Mark ONLY the screens where user intent is clear
     /// AppVitalityKit.shared.markCriticalScreens([
-    ///     "PaymentViewController",
-    ///     "CheckoutViewController",
-    ///     "CartViewController"
+    ///     "PaymentConfirmViewController",  // User is about to pay
+    ///     "CheckoutFinalViewController",   // Final checkout step
+    ///     "SubscriptionPurchaseVC"         // Subscription purchase
     /// ])
     /// ```
     ///
-    /// Note: Common screens like "payment", "checkout", "login" are auto-detected.
+    /// NOT recommended as critical:
+    /// - CartViewController (users browse cart casually)
+    /// - LoginViewController (users might just be checking)
+    /// - ProductDetailVC (browsing, not buying)
     public func markCriticalScreens(_ screenNames: [String]) {
-        customCriticalScreens = Set(screenNames.map { $0.lowercased() })
+        criticalScreens = Set(screenNames.map { $0.lowercased() })
         debugLog("Critical screens marked: \(screenNames)")
     }
     
     /// Add a single screen to critical path
     public func addCriticalScreen(_ screenName: String) {
-        customCriticalScreens.insert(screenName.lowercased())
+        criticalScreens.insert(screenName.lowercased())
         debugLog("Added critical screen: \(screenName)")
+    }
+    
+    /// Remove a screen from critical path
+    public func removeCriticalScreen(_ screenName: String) {
+        criticalScreens.remove(screenName.lowercased())
+        debugLog("Removed critical screen: \(screenName)")
+    }
+    
+    /// Clear all critical screens
+    public func clearCriticalScreens() {
+        criticalScreens.removeAll()
+        debugLog("Cleared all critical screens")
     }
     
     /// Check if a screen is on critical path
     public func isCriticalScreen(_ screenName: String) -> Bool {
-        return detectCriticalPath(screenName: screenName)
+        return criticalScreens.contains(screenName.lowercased())
     }
     
     /// Called internally when screen changes (from UIViewController tracking)
     internal func onScreenChanged(_ screenName: String) {
         currentScreenName = screenName
         let wasCritical = isOnCriticalPath
-        isOnCriticalPath = detectCriticalPath(screenName: screenName)
+        isOnCriticalPath = criticalScreens.contains(screenName.lowercased())
         
         if isOnCriticalPath && !wasCritical {
             debugLog("🎯 Entered critical path: \(screenName) - Enhanced tracking enabled")
@@ -524,25 +535,6 @@ public class AppVitalityKit {
         } else if !isOnCriticalPath && wasCritical {
             debugLog("📤 Left critical path: \(screenName) - Normal tracking resumed")
         }
-    }
-    
-    /// Detect if screen is on critical path (auto + custom)
-    private func detectCriticalPath(screenName: String) -> Bool {
-        let lowercased = screenName.lowercased()
-        
-        // Check custom critical screens first
-        if customCriticalScreens.contains(lowercased) {
-            return true
-        }
-        
-        // Check auto-detected patterns
-        for pattern in autoCriticalPatterns {
-            if lowercased.contains(pattern) {
-                return true
-            }
-        }
-        
-        return false
     }
     
     /// Report a crash before calling fatalError
