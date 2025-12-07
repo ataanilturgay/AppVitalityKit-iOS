@@ -85,67 +85,14 @@ public final class FrustrationDetector {
     
     // MARK: - Dead Click Detection
     
-    /// Find the most relevant visual element at a tap point.
-    /// When hit testing returns a container (UIStackView, UIView), we look for the actual
-    /// visual element (UILabel, UIImageView) that the user was trying to tap.
-    private func findVisualElement(in view: UIView, at windowPoint: CGPoint) -> UIView {
-        let viewType = String(describing: type(of: view))
-        
-        // If it's already a specific visual element, return it
-        let visualTypes = ["UILabel", "UIImageView", "UITextView", "UITextField", "UIButton"]
-        if visualTypes.contains(viewType) {
-            AppVitalityKit.shared.debugLog("🔍 findVisualElement: \(viewType) is already visual, returning")
-            return view
-        }
-        
-        AppVitalityKit.shared.debugLog("🔍 findVisualElement: Searching in \(viewType) with \(view.subviews.count) subviews")
-        
-        // Convert window point to view's coordinate system
-        let pointInView = view.convert(windowPoint, from: nil)
-        
-        for subview in view.subviews.reversed() {
-            guard !subview.isHidden && subview.alpha > 0 else { continue }
-            
-            // Convert window point to subview's coordinate system
-            let pointInSubview = subview.convert(windowPoint, from: nil)
-            let subviewType = String(describing: type(of: subview))
-            
-            // Check if the tap point is within this subview's bounds
-            if subview.bounds.contains(pointInSubview) {
-                AppVitalityKit.shared.debugLog("🔍 Point is inside \(subviewType)")
-                
-                // If subview is a visual element, return it
-                if visualTypes.contains(subviewType) {
-                    AppVitalityKit.shared.debugLog("✅ Found visual element: \(subviewType) inside \(viewType)")
-                    return subview
-                }
-                
-                // Recursively search in subview
-                let found = findVisualElement(in: subview, at: windowPoint)
-                if found !== subview {
-                    return found
-                }
-            }
-        }
-        
-        // No visual element found, log subviews for debugging
-        let subviewTypes = view.subviews.map { String(describing: type(of: $0)) }
-        AppVitalityKit.shared.debugLog("⚠️ No visual element found in \(viewType). Subviews: \(subviewTypes)")
-        
-        return view
-    }
-    
     private func checkDeadClick(at location: CGPoint, hitView: UIView?, screen: String?) {
         guard let view = hitView else { 
             AppVitalityKit.shared.debugLog("Dead click check: No hit view")
             return 
         }
         
-        // Find the actual visual element the user was trying to tap
-        let targetView = findVisualElement(in: view, at: location)
-        
-        let viewType = String(describing: type(of: targetView))
-        let viewId = targetView.accessibilityIdentifier
+        let viewType = String(describing: type(of: view))
+        let viewId = view.accessibilityIdentifier
         
         // Skip system views (private UIKit classes)
         if viewType.hasPrefix("_UI") {
@@ -154,7 +101,7 @@ public final class FrustrationDetector {
         }
         
         // Skip if the view is interactive
-        if isInteractiveView(targetView) {
+        if isInteractiveView(view) {
             AppVitalityKit.shared.debugLog("Dead click check: \(viewType) is interactive, skipping")
             return
         }
@@ -170,11 +117,11 @@ public final class FrustrationDetector {
         // Check if it looks like the user expected interactivity:
         // 1. Heuristic rules (blue label, bordered view, etc.)
         // 2. OR learned from user behavior (many users tapped this)
-        if looksClickable(targetView) || isLearned {
+        if looksClickable(view) || isLearned {
             if isLearned {
                 AppVitalityKit.shared.debugLog("🧠 Dead click (learned): \(viewType) on \(screen ?? "unknown")")
             }
-            reportDeadClick(view: targetView, location: location, screen: screen, isLearned: isLearned)
+            reportDeadClick(view: view, location: location, screen: screen, isLearned: isLearned)
         } else {
             let tapCount = TapPatternLearner.shared.getTapCount(viewType: viewType, screen: screen, viewId: viewId)
             AppVitalityKit.shared.debugLog("Dead click check: \(viewType) doesn't look clickable (tap count: \(tapCount)/5)")
