@@ -17,7 +17,7 @@ public enum AppVitalityEvent {
     
     // Frustration Events (User Experience)
     case rageTap(tapCount: Int, timeWindowSeconds: Double, screen: String?)
-    case deadClick(viewType: String, viewId: String?, screen: String?, elementText: String?)
+    case deadClick(viewType: String, viewId: String?, screen: String?, elementText: String?, isLearned: Bool = false, containerContents: String? = nil, totalTaps: Int = 0)
     
     // Custom Events
     case custom(name: String, parameters: [String: AnyEncodable])
@@ -91,9 +91,11 @@ extension AppVitalityEvent {
                 payload["screen"] = AnyEncodable(scr)
             }
             return payload
-        case let .deadClick(viewType, viewId, screen, elementText):
+        case let .deadClick(viewType, viewId, screen, elementText, isLearned, containerContents, totalTaps):
             var payload: [String: AnyEncodable] = [
-                "view_type": AnyEncodable(viewType)
+                "view_type": AnyEncodable(viewType),
+                "is_learned": AnyEncodable(isLearned),
+                "total_taps": AnyEncodable(totalTaps)
             ]
             if let id = viewId {
                 payload["view_id"] = AnyEncodable(id)
@@ -103,6 +105,9 @@ extension AppVitalityEvent {
             }
             if let text = elementText {
                 payload["element_text"] = AnyEncodable(text)
+            }
+            if let contents = containerContents {
+                payload["container_contents"] = AnyEncodable(contents)
             }
             return payload
         case let .custom(_, parameters):

@@ -16,18 +16,9 @@ public final class TapPatternLearner {
     /// Number of taps required before a view is considered "learned clickable"
     private let learningThreshold = 5
     
-    /// Time window for counting taps (older taps decay)
-    private let decayWindow: TimeInterval = 86400 * 7 // 7 days
+    // MARK: - Storage (Memory only - no persistence, resets each session)
     
-    /// Maximum patterns to store locally
-    private let maxPatterns = 100
-    
-    // MARK: - Storage
-    
-    /// Key for UserDefaults storage
-    private let storageKey = "appvitality_tap_patterns"
-    
-    /// In-memory cache of tap patterns
+    /// In-memory tap patterns - cleared when app restarts
     private var patterns: [String: TapPattern] = [:]
     
     /// Lock for thread safety
@@ -46,17 +37,12 @@ public final class TapPatternLearner {
         public var key: String {
             return "\(screen):\(viewType):\(viewId ?? "nil")"
         }
-
-        /// Check if pattern has decayed (old data)
-        public func isDecayed(window: TimeInterval) -> Bool {
-            return Date().timeIntervalSince(lastTapDate) > window
-        }
     }
     
     // MARK: - Initialization
     
     private init() {
-        loadPatterns()
+        // No persistence - patterns start fresh each session
     }
     
     // MARK: - Public API
@@ -106,12 +92,6 @@ public final class TapPatternLearner {
             patterns[key] = pattern
         }
         
-        // Persist periodically (every 10 taps)
-        let totalTaps = patterns.values.reduce(0) { $0 + $1.tapCount }
-        if totalTaps % 10 == 0 {
-            savePatterns()
-        }
-        
         return patterns[key]?.isLearnedClickable ?? false
     }
     
@@ -151,56 +131,13 @@ public final class TapPatternLearner {
         return patterns[key]?.tapCount ?? 0
     }
     
-    /// Clear all learned patterns (for testing)
+    /// Clear all learned patterns (for testing or manual reset)
     public func reset() {
         lock.lock()
         defer { lock.unlock() }
         
         patterns.removeAll()
-        UserDefaults.standard.removeObject(forKey: storageKey)
         AppVitalityKit.shared.debugLog("🧠 TapPatternLearner: Reset all patterns")
-    }
-    
-    // MARK: - Persistence
-    
-    private func loadPatterns() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode([String: TapPattern].self, from: data) else {
-            return
-        }
-        
-        // Filter out decayed patterns
-        patterns = decoded.filter { !$0.value.isDecayed(window: decayWindow) }
-        
-        let learnedCount = patterns.values.filter { $0.isLearnedClickable }.count
-        if learnedCount > 0 {
-            AppVitalityKit.shared.debugLog("🧠 TapPatternLearner: Loaded \(patterns.count) patterns (\(learnedCount) learned)")
-        }
-    }
-    
-    private func savePatterns() {
-        // Limit stored patterns
-        if patterns.count > maxPatterns {
-            // Remove oldest, non-learned patterns first
-            let sortedKeys = patterns.keys.sorted { key1, key2 in
-                let p1 = patterns[key1]!
-                let p2 = patterns[key2]!
-                
-                // Keep learned patterns
-                if p1.isLearnedClickable != p2.isLearnedClickable {
-                    return p1.isLearnedClickable
-                }
-                
-                // Keep more recent patterns
-                return p1.lastTapDate > p2.lastTapDate
-            }
-            
-            let keysToKeep = Set(sortedKeys.prefix(maxPatterns))
-            patterns = patterns.filter { keysToKeep.contains($0.key) }
-        }
-        
-        guard let data = try? JSONEncoder().encode(patterns) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
     }
     
     // MARK: - Backend Sync

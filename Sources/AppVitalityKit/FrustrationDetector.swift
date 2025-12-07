@@ -209,39 +209,22 @@ public final class FrustrationDetector {
         // Get tap count for context
         let tapCount = TapPatternLearner.shared.getTapCount(viewType: viewType, screen: screen, viewId: viewId)
         
-        var details: [String: AnyEncodable] = [
-            "view_type": AnyEncodable(viewType),
-            "location_x": AnyEncodable(Int(location.x)),
-            "location_y": AnyEncodable(Int(location.y)),
-            "is_learned": AnyEncodable(isLearned),
-            "total_taps": AnyEncodable(tapCount)
-        ]
+        // Get container contents for debugging
+        let containerContents = describeContainerContents(view)
         
-        if let id = viewId {
-            details["view_id"] = AnyEncodable(id)
-        }
-        if let screen = screen {
-            details["screen"] = AnyEncodable(screen)
-        }
-        if let text = extractText(from: view) {
-            details["element_text"] = AnyEncodable(text)
-        }
-        
-        // For containers (UIStackView, UIView), describe what's inside
-        if let contents = describeContainerContents(view) {
-            details["container_contents"] = AnyEncodable(contents)
-        }
-        
-        // Send dead click event
+        // Send dead click event with all metadata
         let event = AppVitalityEvent.deadClick(
             viewType: viewType,
             viewId: viewId,
             screen: screen,
-            elementText: extractText(from: view)
+            elementText: extractText(from: view),
+            isLearned: isLearned,
+            containerContents: containerContents,
+            totalTaps: tapCount
         )
         
         let learnedTag = isLearned ? " [LEARNED]" : ""
-        let contentsInfo = describeContainerContents(view).map { " → Contains: \($0)" } ?? ""
+        let contentsInfo = containerContents.map { " → Contains: \($0)" } ?? ""
         print("🎯 [AppVitalityKit] Dead Click detected\(learnedTag): \(viewType) on \(screen ?? "unknown")\(contentsInfo)")
         
         AppVitalityKit.shared.handle(event: event)
