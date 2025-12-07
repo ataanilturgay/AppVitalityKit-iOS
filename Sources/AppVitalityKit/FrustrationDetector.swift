@@ -227,6 +227,11 @@ public final class FrustrationDetector {
             details["element_text"] = AnyEncodable(text)
         }
         
+        // For containers (UIStackView, UIView), describe what's inside
+        if let contents = describeContainerContents(view) {
+            details["container_contents"] = AnyEncodable(contents)
+        }
+        
         // Send dead click event
         let event = AppVitalityEvent.deadClick(
             viewType: viewType,
@@ -236,7 +241,8 @@ public final class FrustrationDetector {
         )
         
         let learnedTag = isLearned ? " [LEARNED]" : ""
-        print("🎯 [AppVitalityKit] Dead Click detected\(learnedTag): \(viewType) on \(screen ?? "unknown")")
+        let contentsInfo = describeContainerContents(view).map { " → Contains: \($0)" } ?? ""
+        print("🎯 [AppVitalityKit] Dead Click detected\(learnedTag): \(viewType) on \(screen ?? "unknown")\(contentsInfo)")
         
         AppVitalityKit.shared.handle(event: event)
         
@@ -258,6 +264,37 @@ public final class FrustrationDetector {
             return textView.text?.prefix(50).description
         }
         return view.accessibilityLabel?.prefix(50).description
+    }
+    
+    /// Describe what's inside a container view (for better debugging)
+    /// Example: "UILabel('Ürün Adı'), UIImageView, UILabel('₺99')"
+    private func describeContainerContents(_ view: UIView) -> String? {
+        guard !view.subviews.isEmpty else { return nil }
+        
+        var descriptions: [String] = []
+        
+        for subview in view.subviews.prefix(5) { // Max 5 subviews
+            let typeName = String(describing: type(of: subview))
+            
+            // Skip private/system views
+            if typeName.hasPrefix("_") { continue }
+            
+            // Get text if available
+            if let label = subview as? UILabel, let text = label.text, !text.isEmpty {
+                let shortText = String(text.prefix(20))
+                descriptions.append("\(typeName)('\(shortText)')")
+            } else if let button = subview as? UIButton, let title = button.currentTitle {
+                descriptions.append("\(typeName)('\(title)')")
+            } else {
+                descriptions.append(typeName)
+            }
+        }
+        
+        if view.subviews.count > 5 {
+            descriptions.append("+\(view.subviews.count - 5) more")
+        }
+        
+        return descriptions.isEmpty ? nil : descriptions.joined(separator: ", ")
     }
     
     // MARK: - Rage Tap Detection
