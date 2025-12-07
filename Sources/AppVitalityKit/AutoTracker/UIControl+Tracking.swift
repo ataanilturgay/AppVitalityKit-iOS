@@ -54,21 +54,12 @@ extension UIControl {
         
         let logMessage = logParts.joined(separator: " | ")
         
-        // Log to breadcrumbs
+        // Log to breadcrumbs only (not sent as separate events)
+        // Button taps are captured as breadcrumbs and included in crash reports
         if isCritical {
             BreadcrumbLogger.shared.logCritical("👆 \(logMessage)")
         } else {
             BreadcrumbLogger.shared.logAction("tap", target: logMessage)
-        }
-        
-        // Send button_tap event for analytics (only for meaningful taps)
-        if buttonText != nil || buttonId != nil {
-            let tapEvent = AppVitalityEvent.buttonTap(
-                buttonText: buttonText,
-                buttonId: buttonId,
-                screen: currentScreen
-            )
-            AppVitalityKit.shared.handle(event: tapEvent)
         }
     }
     
