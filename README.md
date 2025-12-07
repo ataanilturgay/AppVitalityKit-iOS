@@ -1,14 +1,17 @@
-# AppVitalityKit
+# AppVitalityKit (iOS)
 
-iOS SDK for [AppVitality](https://github.com/your-org/AppVitality) - Mobile app analytics and performance monitoring.
+The official iOS SDK for [AppVitality](https://appvitality.io) - The intelligent analytics and performance monitoring platform.
 
 ## Features
 
-- 📊 **Auto Analytics** - Screen views, button taps, session tracking
-- 🔥 **Crash Reporting** - Automatic crash detection with breadcrumbs
-- ⚡ **Performance Monitoring** - FPS, CPU, memory, UI hangs
-- 🔋 **Battery Friendly** - Configurable power policies
-- ☁️ **Cloud Sync** - Automatic batched uploads to AppVitality
+- 📊 **Auto Analytics** - Automatic tracking of screens, sessions, and interactions.
+- 💥 **Crash Reporting** - Catch crashes with breadcrumbs and stack traces.
+- ⚡ **Performance Monitoring** - FPS, CPU, Memory, and UI Hang detection.
+- 🚨 **User Risk Score** - Dynamically detects frustrated users and captures 100% of their data.
+- 🎯 **Critical Path Detection** - Ensure 100% data capture on business-critical screens.
+- 😤 **Frustration Detection** - Automatically detects **Rage Taps** and **Dead Clicks**.
+- 🧠 **Smart Sampling** - Activity-based and device-aware (Auto-Tuning) sampling.
+- 🔋 **Battery Friendly** - Automatically adjusts behavior based on battery and thermal state.
 
 ## Installation
 
@@ -21,15 +24,7 @@ Add the package to your Xcode project:
    ```
    https://github.com/your-org/AppVitalityKit-iOS
    ```
-3. Select version and add to your target
-
-Or add to your `Package.swift`:
-
-```swift
-dependencies: [
-    .package(url: "https://github.com/your-org/AppVitalityKit-iOS", from: "1.0.0")
-]
-```
+3. Select version `1.0.0` or higher.
 
 ## Quick Start
 
@@ -38,155 +33,96 @@ dependencies: [
 ```swift
 import AppVitalityKit
 
-@main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+func application(_ application: UIApplication, didFinishLaunchingWithOptions...) -> Bool {
     
-    func application(_ application: UIApplication, 
-                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        
-        // Initialize with your API key from AppVitality Dashboard
-        AppVitalityKit.shared.configure(
-            apiKey: "your-api-key-here"
-        )
-        
-        return true
-    }
+    // Initialize with your API key
+    AppVitalityKit.shared.configure(apiKey: "your-api-key")
+    
+    return true
 }
 ```
 
-### 2. SwiftUI App
+That's it! The SDK automatically starts tracking sessions, screens, and crashes.
+
+## 🧠 Smart Features
+
+### 1. User Risk Score (New)
+
+The SDK assigns a dynamic **Risk Score** (0-100) to each user session based on frustration signals. 
+
+- **High Risk (≥70):** The user is experiencing significant issues. The SDK **overrides sampling** and captures 100% of events.
+- **Signals:** Rage Taps (+15), Dead Clicks (+10), Errors (+20), UI Hangs (+10), Crashes (+20).
+
+No configuration required. It works automatically.
+
+### 2. Critical Path Detection
+
+Mark specific screens as **business-critical** (e.g., checkout, payment). Events on these screens are **always captured (100% sampling)** regardless of user activity or device state.
 
 ```swift
-import SwiftUI
-import AppVitalityKit
-
-@main
-struct MyApp: App {
-    
-    init() {
-        AppVitalityKit.shared.configure(
-            apiKey: "your-api-key-here"
-        )
-    }
-    
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
-}
+// Mark critical screens where you can't afford to lose data
+AppVitalityKit.shared.markCriticalScreens([
+    "PaymentConfirmViewController",
+    "CheckoutFinalViewController",
+    "SubscriptionPurchaseVC"
+])
 ```
 
-## Configuration Options
+### 3. Frustration Detection
 
-```swift
-AppVitalityKit.shared.configure(
-    apiKey: "your-api-key",
-    options: .init(
-        features: [
-            .autoActionTracking,  // Screen views & button taps
-            .crashReporting,      // Crash detection
-            .fpsMonitor,          // Frame rate monitoring
-            .cpuMonitor,          // CPU usage tracking
-            .memoryMonitor,       // Memory warnings
-            .mainThreadWatchdog,  // UI hang detection
-            .networkMonitoring,   // Network quality
-            .metricKitReporting   // iOS MetricKit data
-        ],
-        policy: .moderate,        // .strict, .moderate, .relaxed
-        flushInterval: 10,        // Seconds between uploads
-        maxBatchSize: 20          // Events per batch
-    )
-)
-```
+The SDK automatically detects when users are frustrated:
 
-### Feature Presets
+- **Rage Taps:** Rapidly tapping the same element (indicates slow UI or confusion).
+- **Dead Clicks:** Tapping on non-interactive elements that *look* clickable.
 
-```swift
-// All features
-options: .init(features: Feature.all)
+These events are sent automatically and contribute to the User Risk Score.
 
-// Recommended (default)
-options: .init(features: Feature.recommended)
+### 4. Adaptive Sampling (Auto-Tuning)
 
-// Minimal
-options: .init(features: [.crashReporting, .autoActionTracking])
-```
+The SDK automatically optimizes itself based on:
 
-## Auto-Tracked Events
-
-When `.autoActionTracking` is enabled:
-
-| Event Type | Trigger | Payload |
-|------------|---------|---------|
-| `screen_view` | UIViewController appears | `screen`, `previous_screen` |
-| `button_tap` | UIButton tap | `button_text`, `button_id`, `screen` |
-| `session_start` | App becomes active | - |
-| `session_end` | App goes to background | `duration_seconds` |
-
-### Better Button Tracking
-
-Set `accessibilityIdentifier` for cleaner reports:
-
-```swift
-buyButton.accessibilityIdentifier = "buy_now_button"
-// Dashboard shows: "buy_now_button" instead of "Buy Now"
-```
+- **User Activity:** High interaction rate (scrolling fast) → Lower sampling (to save CPU). Low activity → Higher sampling.
+- **Device Health:** 
+  - **Low Battery:** Reduces upload frequency.
+  - **Thermal State:** Disables heavy monitors (FPS/CPU) if device is hot.
+  - **Low Power Mode:** Reduces data collection.
 
 ## Manual Event Logging
 
 ```swift
-// Custom event
+// Custom event with parameters
 AppVitalityKit.shared.log(event: "purchase_completed", parameters: [
-    "product_id": AnyEncodable("SKU123"),
-    "price": AnyEncodable(29.99),
-    "currency": AnyEncodable("USD")
-])
-
-// Page view (if not using auto-tracking)
-AppVitalityKit.shared.log(event: "page_view", parameters: [
-    "screen": AnyEncodable("CheckoutScreen")
+    "product_id": "SKU_123",
+    "price": 29.99,
+    "currency": "USD"
 ])
 ```
 
-## Delegate (Optional)
+## Advanced Configuration
 
-Receive events locally for debugging or custom handling:
+For enterprise apps with massive traffic, you can customize the default behavior:
 
 ```swift
-class MyAnalyticsHandler: AppVitalityDelegate {
-    
-    func didDetectEvent(_ event: AppVitalityEvent) {
-        print("Event: \(event.type)")
-    }
-    
-    func didDetectCrash(_ log: String) {
-        print("Crash detected: \(log)")
-    }
-}
+let options = AppVitalityKit.Options(
+    features: .recommended,
+    policy: .moderate,
+    flushInterval: 30,      // Upload every 30s
+    maxBatchSize: 50,       // Batch size
+    eventSampleRate: 0.1    // Sample 10% of standard events
+)
 
-// Set delegate
-AppVitalityKit.shared.delegate = MyAnalyticsHandler()
+AppVitalityKit.shared.configure(apiKey: "key", options: options)
 ```
 
-## Requirements
-
-- iOS 13.0+
-- Swift 5.5+
-- Xcode 13.0+
+**Note:** Critical Path and High Risk sessions will **bypass** the `eventSampleRate` limit automatically.
 
 ## Privacy
 
-AppVitalityKit collects:
-- Device model, OS version
-- App version
-- Anonymous device identifier (vendor ID)
-- Screen names and button interactions
-- Performance metrics (FPS, CPU, memory)
-- Crash stack traces
-
-**No personal data is collected.** See [Privacy Policy](https://appvitality.io/privacy).
+AppVitalityKit respects user privacy:
+- No personal data collected by default.
+- Use `AppVitalityKit.shared.stop()` to disable tracking (e.g., for user opt-out).
+- Compatible with App Tracking Transparency (ATT).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License.
