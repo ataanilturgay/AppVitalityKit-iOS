@@ -221,7 +221,7 @@ public class AppVitalityKit {
     private var sessionStartTime: Date?
     
     // MARK: - Adaptive Sampling (Activity-Based)
-    
+
     /// Tracks recent user interactions for adaptive sampling
     private var recentInteractionTimestamps: [Date] = []
     private let interactionWindow: TimeInterval = 60 // 1 minute window
@@ -229,7 +229,28 @@ public class AppVitalityKit {
     private let lowActivityThreshold = 5   // <5 interactions/min = low activity
     private var currentActivityMultiplier: Double = 1.0
     private var activityCheckTimer: Timer?
-    
+
+    // MARK: - User Risk Score
+
+    /// Current user risk score (0-100)
+    /// Higher score = more problems detected = higher sampling priority
+    private var currentRiskScore: Int = 0
+
+    /// Risk signal tracking (sliding window)
+    private var recentRageTaps: [Date] = []
+    private var recentDeadClicks: [Date] = []
+    private var recentErrors: [Date] = []
+    private var recentUIHangs: [Date] = []
+    private var recentHTTPErrors: [Date] = []
+    private let riskWindow: TimeInterval = 300 // 5 minute window
+
+    /// Previous session had a crash
+    private var hadCrashInPreviousSession: Bool = false
+
+    /// Risk score thresholds
+    private let highRiskThreshold = 70  // Above this = full sampling
+    private let mediumRiskThreshold = 40
+
     // MARK: - Critical Path Detection
     
     /// Current screen name for critical path detection
@@ -394,6 +415,10 @@ public class AppVitalityKit {
         // 10. Start Adaptive Sampling (Activity-Based)
         startActivityMonitor()
         print("   ✅ Adaptive Sampling: Active (adjusts based on user activity)")
+
+        // 11. Check for previous crash (affects risk score)
+        checkPreviousCrash()
+        print("   ✅ Risk Score: Active (boosts sampling when problems detected)")
 
         print("🚀 AppVitalityKit is ready. (\(tunedOptions.features.count) features enabled)")
     }
@@ -581,25 +606,30 @@ public class AppVitalityKit {
     }
 
     // MARK: - Internal Event Handling
-    
+
     func handle(event: AppVitalityEvent) {
         // Track user interactions for adaptive sampling
         if isUserInteractionEvent(event.type) {
             trackInteraction()
         }
-        
-        // Calculate effective sample rate
-        let baseSampleRate = options?.eventSampleRate ?? 1.0
-        let effectiveSampleRate = baseSampleRate * currentActivityMultiplier
-        
+
+        // Track risk signals for risk-based sampling
+        if isRiskSignalEvent(event.type) {
+            trackRiskSignal(type: event.type)
+        }
+
+        // Calculate effective sample rate (risk score overrides activity level)
+        let effectiveSampleRate = getEffectiveSampleRate()
+
         // Build SDK metadata for analytics
         let sdkMetadata: [String: AnyEncodable] = [
             "_sdk_critical_path": AnyEncodable(isOnCriticalPath),
             "_sdk_sample_rate": AnyEncodable(effectiveSampleRate),
             "_sdk_activity_multiplier": AnyEncodable(currentActivityMultiplier),
+            "_sdk_risk_score": AnyEncodable(currentRiskScore),
             "_sdk_screen": AnyEncodable(currentScreenName ?? "unknown")
         ]
-        
+
         // Critical Path: Always 100% sampling on critical screens
         if isOnCriticalPath {
             debugLog("🎯 Critical path event (100% captured): \(event.type)")
@@ -607,7 +637,15 @@ public class AppVitalityKit {
             delegate?.didDetectEvent(event)
             return
         }
-        
+
+        // HIGH RISK: Always 100% sampling when user is having problems
+        if currentRiskScore >= highRiskThreshold {
+            debugLog("🚨 High risk event (100% captured): \(event.type)")
+            uploader?.enqueue(event: event, metadata: sdkMetadata)
+            delegate?.didDetectEvent(event)
+            return
+        }
+
         // Apply adaptive sampling (critical events bypass sampling)
         if effectiveSampleRate < 1.0 && !isCriticalEvent(event.type) {
             if Double.random(in: 0...1) > effectiveSampleRate {
@@ -617,10 +655,20 @@ public class AppVitalityKit {
                 return
             }
         }
-        
+
         debugLog("Enqueue event: \(event.type)")
         uploader?.enqueue(event: event, metadata: sdkMetadata)
         delegate?.didDetectEvent(event)
+    }
+
+    /// Events that indicate a risk signal (frustration, errors)
+    private func isRiskSignalEvent(_ eventType: String) -> Bool {
+        return eventType == "rage_tap" ||
+               eventType == "dead_click" ||
+               eventType == "uiHang" ||
+               eventType == "error" ||
+               eventType == "http_error" ||
+               eventType.contains("error")
     }
     
     /// Critical events that should never be sampled out
@@ -698,6 +746,112 @@ public class AppVitalityKit {
     private func stopActivityMonitor() {
         activityCheckTimer?.invalidate()
         activityCheckTimer = nil
+    }
+
+    // MARK: - Risk Score Calculation
+
+    /// Track a risk signal event
+    private func trackRiskSignal(type: String) {
+        let now = Date()
+
+        switch type {
+        case "rage_tap":
+            recentRageTaps.append(now)
+        case "dead_click":
+            recentDeadClicks.append(now)
+        case "error", "crash":
+            recentErrors.append(now)
+        case "uiHang":
+            recentUIHangs.append(now)
+        case "http_error":
+            recentHTTPErrors.append(now)
+        default:
+            break
+        }
+
+        // Update risk score after tracking
+        updateRiskScore()
+    }
+
+    /// Calculate and update user risk score (0-100)
+    private func updateRiskScore() {
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-riskWindow)
+
+        // Clean up old signals
+        recentRageTaps.removeAll { $0 < cutoff }
+        recentDeadClicks.removeAll { $0 < cutoff }
+        recentErrors.removeAll { $0 < cutoff }
+        recentUIHangs.removeAll { $0 < cutoff }
+        recentHTTPErrors.removeAll { $0 < cutoff }
+
+        // Calculate score based on weighted signals
+        // Max score = 100
+        var score = 0
+
+        // Rage taps: 15 points each, max 30
+        score += min(recentRageTaps.count * 15, 30)
+
+        // Dead clicks: 10 points each, max 20
+        score += min(recentDeadClicks.count * 10, 20)
+
+        // Errors: 20 points each, max 30
+        score += min(recentErrors.count * 20, 30)
+
+        // UI Hangs: 10 points each, max 20
+        score += min(recentUIHangs.count * 10, 20)
+
+        // HTTP errors: 5 points each, max 15
+        score += min(recentHTTPErrors.count * 5, 15)
+
+        // Previous crash bonus: +20
+        if hadCrashInPreviousSession {
+            score += 20
+        }
+
+        let previousScore = currentRiskScore
+        currentRiskScore = min(score, 100)
+
+        if previousScore != currentRiskScore {
+            debugLog("🚨 Risk score changed: \(previousScore) → \(currentRiskScore)")
+        }
+    }
+
+    /// Check if previous session had a crash (called on configure)
+    private func checkPreviousCrash() {
+        // Check if crash marker file exists from SimpleCrashReporter
+        let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+        guard let cacheDir = paths.first else { return }
+        let crashDir = cacheDir.appendingPathComponent("AppVitality/Crashes")
+
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: crashDir.path) {
+            hadCrashInPreviousSession = files.contains { $0.contains("crash") }
+            if hadCrashInPreviousSession {
+                debugLog("⚠️ Previous session had a crash - elevated risk monitoring")
+            }
+        }
+    }
+
+    /// Get effective sample rate considering both activity and risk
+    /// Risk ALWAYS wins over activity (problems > performance)
+    private func getEffectiveSampleRate() -> Double {
+        let baseSampleRate = options?.eventSampleRate ?? 1.0
+
+        // HIGH RISK: Override everything, capture all events
+        if currentRiskScore >= highRiskThreshold {
+            debugLog("🚨 High risk detected (score: \(currentRiskScore)) - 100% sampling")
+            return 1.0
+        }
+
+        // MEDIUM RISK: Boost sampling but respect some throttling
+        if currentRiskScore >= mediumRiskThreshold {
+            let boostedRate = min(baseSampleRate * 1.5, 1.0)
+            debugLog("⚠️ Medium risk (score: \(currentRiskScore)) - boosted to \(String(format: "%.0f", boostedRate * 100))%")
+            return boostedRate
+        }
+
+        // LOW RISK: Apply normal activity-based sampling
+        return baseSampleRate * currentActivityMultiplier
     }
 
     func handleCrash(report: AppVitalityCrashReport) {
