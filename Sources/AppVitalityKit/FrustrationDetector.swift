@@ -88,39 +88,50 @@ public final class FrustrationDetector {
     /// Find the most relevant visual element at a tap point.
     /// When hit testing returns a container (UIStackView, UIView), we look for the actual
     /// visual element (UILabel, UIImageView) that the user was trying to tap.
-    private func findVisualElement(in view: UIView, at point: CGPoint) -> UIView {
+    private func findVisualElement(in view: UIView, at windowPoint: CGPoint) -> UIView {
         let viewType = String(describing: type(of: view))
         
         // If it's already a specific visual element, return it
         let visualTypes = ["UILabel", "UIImageView", "UITextView", "UITextField", "UIButton"]
         if visualTypes.contains(viewType) {
+            AppVitalityKit.shared.debugLog("🔍 findVisualElement: \(viewType) is already visual, returning")
             return view
         }
         
-        // If it's a container, look for visual elements in subviews at this point
-        let pointInView = view.convert(point, from: view.window)
+        AppVitalityKit.shared.debugLog("🔍 findVisualElement: Searching in \(viewType) with \(view.subviews.count) subviews")
+        
+        // Convert window point to view's coordinate system
+        let pointInView = view.convert(windowPoint, from: nil)
         
         for subview in view.subviews.reversed() {
-            // Check if the tap point is within this subview
-            let pointInSubview = subview.convert(point, from: view.window)
-            if subview.bounds.contains(pointInSubview) && !subview.isHidden && subview.alpha > 0 {
-                let subviewType = String(describing: type(of: subview))
+            guard !subview.isHidden && subview.alpha > 0 else { continue }
+            
+            // Convert window point to subview's coordinate system
+            let pointInSubview = subview.convert(windowPoint, from: nil)
+            let subviewType = String(describing: type(of: subview))
+            
+            // Check if the tap point is within this subview's bounds
+            if subview.bounds.contains(pointInSubview) {
+                AppVitalityKit.shared.debugLog("🔍 Point is inside \(subviewType)")
                 
                 // If subview is a visual element, return it
                 if visualTypes.contains(subviewType) {
-                    AppVitalityKit.shared.debugLog("Found visual element: \(subviewType) inside \(viewType)")
+                    AppVitalityKit.shared.debugLog("✅ Found visual element: \(subviewType) inside \(viewType)")
                     return subview
                 }
                 
                 // Recursively search in subview
-                let found = findVisualElement(in: subview, at: point)
+                let found = findVisualElement(in: subview, at: windowPoint)
                 if found !== subview {
                     return found
                 }
             }
         }
         
-        // No visual element found, return original view
+        // No visual element found, log subviews for debugging
+        let subviewTypes = view.subviews.map { String(describing: type(of: $0)) }
+        AppVitalityKit.shared.debugLog("⚠️ No visual element found in \(viewType). Subviews: \(subviewTypes)")
+        
         return view
     }
     
