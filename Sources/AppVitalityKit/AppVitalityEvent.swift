@@ -15,6 +15,10 @@ public enum AppVitalityEvent {
     case sessionStart
     case sessionEnd(duration: TimeInterval)
     
+    // Frustration Events (User Experience)
+    case rageTap(tapCount: Int, timeWindowSeconds: Double, screen: String?)
+    case deadClick(viewType: String, viewId: String?, screen: String?, elementText: String?)
+    
     // Custom Events
     case custom(name: String, parameters: [String: AnyEncodable])
 }
@@ -32,6 +36,8 @@ extension AppVitalityEvent {
         case .buttonTap: return "button_tap"
         case .sessionStart: return "session_start"
         case .sessionEnd: return "session_end"
+        case .rageTap: return "rage_tap"
+        case .deadClick: return "dead_click"
         case .custom(let name, _): return name
         }
     }
@@ -76,6 +82,29 @@ extension AppVitalityEvent {
             return [:]
         case let .sessionEnd(duration):
             return ["duration_seconds": AnyEncodable(duration)]
+        case let .rageTap(tapCount, timeWindowSeconds, screen):
+            var payload: [String: AnyEncodable] = [
+                "tap_count": AnyEncodable(tapCount),
+                "time_window_seconds": AnyEncodable(timeWindowSeconds)
+            ]
+            if let scr = screen {
+                payload["screen"] = AnyEncodable(scr)
+            }
+            return payload
+        case let .deadClick(viewType, viewId, screen, elementText):
+            var payload: [String: AnyEncodable] = [
+                "view_type": AnyEncodable(viewType)
+            ]
+            if let id = viewId {
+                payload["view_id"] = AnyEncodable(id)
+            }
+            if let scr = screen {
+                payload["screen"] = AnyEncodable(scr)
+            }
+            if let text = elementText {
+                payload["element_text"] = AnyEncodable(text)
+            }
+            return payload
         case let .custom(_, parameters):
             return parameters
         }

@@ -13,14 +13,15 @@ public class AppVitalityKit {
     
     /// Features that SDK can monitor automatically.
     public enum Feature {
-        case metricKitReporting // Collect energy and performance reports
-        case networkMonitoring  // Monitor URLSession traffic and warn (does NOT block)
-        case mainThreadWatchdog // Catch UI hangs
-        case memoryMonitor      // Warn about excessive RAM usage
-        case crashReporting     // Record basic crash reasons
-        case fpsMonitor         // Monitor UI smoothness (Frame Drop)
-        case cpuMonitor         // Monitor CPU usage and thermal state
-        case autoActionTracking // Automatic UI Tracking (Taps, Screen Transitions)
+        case metricKitReporting   // Collect energy and performance reports
+        case networkMonitoring    // Monitor URLSession traffic and warn (does NOT block)
+        case mainThreadWatchdog   // Catch UI hangs
+        case memoryMonitor        // Warn about excessive RAM usage
+        case crashReporting       // Record basic crash reasons
+        case fpsMonitor           // Monitor UI smoothness (Frame Drop)
+        case cpuMonitor           // Monitor CPU usage and thermal state
+        case autoActionTracking   // Automatic UI Tracking (Taps, Screen Transitions)
+        case frustrationDetection // Detect rage taps and dead clicks (UX issues)
         
         /// All available features
         public static let all: Set<Feature> = [
@@ -31,7 +32,8 @@ public class AppVitalityKit {
             .crashReporting,
             .fpsMonitor,
             .cpuMonitor,
-            .autoActionTracking
+            .autoActionTracking,
+            .frustrationDetection
         ]
         
         /// Recommended features for most apps
@@ -39,7 +41,8 @@ public class AppVitalityKit {
             .fpsMonitor,
             .cpuMonitor,
             .crashReporting,
-            .autoActionTracking
+            .autoActionTracking,
+            .frustrationDetection
         ]
     }
 
@@ -231,6 +234,12 @@ public class AppVitalityKit {
             print("   ✅ Auto Tracker: Active")
         }
 
+        // 9. Frustration Detection (Rage Taps & Dead Clicks)
+        if options.features.contains(.frustrationDetection) {
+            _ = FrustrationDetector.shared // Initialize detector
+            print("   ✅ Frustration Detector: Active (Rage Taps, Dead Clicks)")
+        }
+
         print("🚀 AppVitalityKit is ready. (\(options.features.count) features enabled)")
     }
     
@@ -352,7 +361,7 @@ public class AppVitalityKit {
         uploader?.enqueueCrash(log)
     }
 
-    private func debugLog(_ message: String) {
+    func debugLog(_ message: String) {
         guard options?.enableDebugLogging == true else { return }
         print("🔍 AppVitalityKit DEBUG: \(message)")
     }
