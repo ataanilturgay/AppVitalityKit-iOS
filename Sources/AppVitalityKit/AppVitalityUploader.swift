@@ -106,6 +106,8 @@ final class AppVitalityUploader {
             
             // Merge event payload with SDK metadata
             var mergedPayload = event.toPayload()
+            // Always include platform in payload for consistent analytics
+            mergedPayload["platform"] = AnyEncodable("iOS")
             for (key, value) in metadata {
                 mergedPayload[key] = value
             }
