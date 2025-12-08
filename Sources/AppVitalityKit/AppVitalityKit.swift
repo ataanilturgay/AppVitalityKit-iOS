@@ -122,14 +122,17 @@ public class AppVitalityKit {
         
         /// Percentage of events to send (0.0 to 1.0).
         ///
-        /// **Use this to reduce server load for high-traffic apps:**
-        /// - `1.0` = Send all events (default, for apps <100K DAU)
-        /// - `0.5` = Send 50% of events (for 100K-500K DAU)
-        /// - `0.1` = Send 10% of events (for >1M DAU)
+        /// Default is 10% for cost efficiency. Adaptive sampling automatically
+        /// increases to 100% when problems are detected (rage taps, errors, etc.)
         ///
-        /// **Important:** Crashes, rage taps, and session events are ALWAYS sent regardless of this setting.
+        /// Override examples:
+        /// - `0.1` = 10% (default, cost efficient)
+        /// - `0.5` = 50% (more data, higher cost)
+        /// - `1.0` = 100% (all events, highest cost)
         ///
-        /// Default: `1.0`
+        /// **Important:** Crashes, rage taps, critical paths are ALWAYS sent (100%).
+        ///
+        /// Default: `0.1` (10%)
         public var eventSampleRate: Double
         
         /// Maximum events to queue in memory before dropping oldest.
@@ -153,7 +156,7 @@ public class AppVitalityKit {
             maxBatchSize: Int = 20,
             customEndpoint: URL? = nil,
             enableDebugLogging: Bool = false,
-            eventSampleRate: Double = 1.0,
+            eventSampleRate: Double = 0.1,
             maxQueueSize: Int = 500
         ) {
             self.features = features
@@ -773,7 +776,34 @@ public class AppVitalityKit {
         updateRiskScore()
     }
 
+    // MARK: - Risk Score Constants
+    
+    /// Decay factor for diminishing returns (0.0 - 1.0)
+    /// Each subsequent event contributes weight * decay^n
+    private let riskDecayFactor: Double = 0.8
+    
+    /// Event weights for risk calculation
+    private let rageTapWeight: Double = 15
+    private let deadClickWeight: Double = 10
+    private let errorWeight: Double = 20
+    private let uiHangWeight: Double = 25
+    private let httpErrorWeight: Double = 8
+    private let previousCrashBonus: Double = 30
+    
+    /// Calculate diminishing score for event count
+    /// Uses decay factor to prevent score explosion with many events
+    /// Example with decay=0.8: 1st=15, 2nd=12, 3rd=9.6, 4th=7.7...
+    private func diminishingScore(count: Int, weight: Double) -> Double {
+        guard count > 0 else { return 0 }
+        var total: Double = 0
+        for i in 0..<count {
+            total += weight * pow(riskDecayFactor, Double(i))
+        }
+        return total
+    }
+
     /// Calculate and update user risk score (0-100)
+    /// Uses diminishing returns algorithm - same as Web SDK
     private func updateRiskScore() {
         let now = Date()
         let cutoff = now.addingTimeInterval(-riskWindow)
@@ -785,32 +815,32 @@ public class AppVitalityKit {
         recentUIHangs.removeAll { $0 < cutoff }
         recentHTTPErrors.removeAll { $0 < cutoff }
 
-        // Calculate score based on weighted signals
-        // Max score = 100
-        var score = 0
+        // Calculate score using diminishing returns
+        // Prevents score explosion with many events
+        var score: Double = 0
 
-        // Rage taps: 15 points each, max 30
-        score += min(recentRageTaps.count * 15, 30)
+        // Rage taps: first=15, subsequent decay by 0.8
+        score += diminishingScore(count: recentRageTaps.count, weight: rageTapWeight)
 
-        // Dead clicks: 10 points each, max 20
-        score += min(recentDeadClicks.count * 10, 20)
+        // Dead clicks: first=10, subsequent decay
+        score += diminishingScore(count: recentDeadClicks.count, weight: deadClickWeight)
 
-        // Errors: 20 points each, max 30
-        score += min(recentErrors.count * 20, 30)
+        // Errors: first=20, subsequent decay
+        score += diminishingScore(count: recentErrors.count, weight: errorWeight)
 
-        // UI Hangs: 10 points each, max 20
-        score += min(recentUIHangs.count * 10, 20)
+        // UI Hangs: first=25, subsequent decay
+        score += diminishingScore(count: recentUIHangs.count, weight: uiHangWeight)
 
-        // HTTP errors: 5 points each, max 15
-        score += min(recentHTTPErrors.count * 5, 15)
+        // HTTP errors: first=8, subsequent decay
+        score += diminishingScore(count: recentHTTPErrors.count, weight: httpErrorWeight)
 
-        // Previous crash bonus: +20
+        // Previous crash bonus (flat, no decay)
         if hadCrashInPreviousSession {
-            score += 20
+            score += previousCrashBonus
         }
 
         let previousScore = currentRiskScore
-        currentRiskScore = min(score, 100)
+        currentRiskScore = min(Int(score), 100)
 
         if previousScore != currentRiskScore {
             debugLog("🚨 Risk score changed: \(previousScore) → \(currentRiskScore)")
