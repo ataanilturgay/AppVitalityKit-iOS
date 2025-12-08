@@ -35,9 +35,6 @@ extension UIControl {
             responder = r.next
         }
         
-        // Determine if this is a critical action
-        let isCritical = isCriticalAction(buttonId: buttonId, buttonText: buttonText, action: action)
-        
         // Build log message
         let actionName = NSStringFromSelector(action)
         var logParts: [String] = [actionName]
@@ -56,42 +53,11 @@ extension UIControl {
         
         // Log to breadcrumbs only (not sent as separate events)
         // Button taps are captured as breadcrumbs and included in crash reports
-        if isCritical {
+        // On critical screens: immediately persist (won't be lost on crash)
+        if AppVitalityKit.shared.isCriticalScreen(currentScreen ?? "") {
             BreadcrumbLogger.shared.logCritical("👆 \(logMessage)")
         } else {
             BreadcrumbLogger.shared.logAction("tap", target: logMessage)
         }
-    }
-    
-    /// Determines if an action should be treated as critical (immediately persisted).
-    /// Critical actions: payments, auth, destructive actions, navigation
-    private func isCriticalAction(buttonId: String?, buttonText: String?, action: Selector) -> Bool {
-        let actionName = NSStringFromSelector(action).lowercased()
-        let id = buttonId?.lowercased() ?? ""
-        let text = buttonText?.lowercased() ?? ""
-        
-        // Keywords that indicate critical actions
-        let criticalKeywords = [
-            // Payment & Purchase
-            "pay", "purchase", "buy", "checkout", "order", "subscribe",
-            // Authentication
-            "login", "logout", "signin", "signout", "register", "signup", "auth",
-            // Destructive
-            "delete", "remove", "cancel", "clear", "reset",
-            // Important navigation
-            "submit", "confirm", "save", "send", "share", "post",
-            // Settings
-            "setting", "preference", "permission"
-        ]
-        
-        for keyword in criticalKeywords {
-            if actionName.contains(keyword) ||
-               id.contains(keyword) ||
-               text.contains(keyword) {
-                return true
-            }
-        }
-        
-        return false
     }
 }
