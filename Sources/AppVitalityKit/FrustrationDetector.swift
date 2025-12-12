@@ -135,15 +135,13 @@ public final class FrustrationDetector {
         let normalizedX = Int((location.x / window.bounds.width) * 100)
         let normalizedY = Int((location.y / window.bounds.height) * 100)
         
-        // Find nearest interactive element
-        let nearest = findNearestInteractiveElement(from: location)
-        
+        // NOTE: nearestElement removed for performance - view traversal was blocking main thread
         let event = AppVitalityEvent.ghostTouch(
             x: normalizedX,
             y: normalizedY,
             screen: screen,
-            nearestElement: nearest?.identifier,
-            distanceToNearest: nearest?.distance
+            nearestElement: nil,
+            distanceToNearest: nil
         )
         
         AppVitalityKit.shared.handle(event: event)
@@ -152,38 +150,6 @@ public final class FrustrationDetector {
         BreadcrumbLogger.shared.logAction("ghost_touch", target: "(\(normalizedX), \(normalizedY)) @ \(screen ?? "unknown")")
         
         print("👻 [AppVitalityKit] Ghost Touch detected at (\(normalizedX), \(normalizedY)) on \(screen ?? "unknown")")
-    }
-    
-    private func findNearestInteractiveElement(from point: CGPoint) -> (identifier: String, distance: Int)? {
-        guard let window = getKeyWindow() else { return nil }
-        
-        var nearest: (identifier: String, distance: CGFloat)? = nil
-        
-        findInteractiveViews(in: window) { view in
-            let viewCenter = view.superview?.convert(view.center, to: window) ?? view.center
-            let dist = distance(point, viewCenter)
-            
-            if dist < 200 { // Only consider elements within 200pt
-                if nearest == nil || dist < nearest!.distance {
-                    let identifier = view.accessibilityIdentifier ?? 
-                                    view.accessibilityLabel ?? 
-                                    String(describing: type(of: view))
-                    nearest = (identifier, dist)
-                }
-            }
-        }
-        
-        return nearest.map { ($0.identifier, Int($0.distance)) }
-    }
-    
-    private func findInteractiveViews(in view: UIView, handler: (UIView) -> Void) {
-        if isInteractiveView(view) {
-            handler(view)
-        }
-        
-        for subview in view.subviews {
-            findInteractiveViews(in: subview, handler: handler)
-        }
     }
     
     // MARK: - Dead Click Detection
