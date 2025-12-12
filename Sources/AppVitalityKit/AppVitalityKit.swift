@@ -317,6 +317,9 @@ public class AppVitalityKit {
     /// Initialize AppVitalityKit with custom options (advanced usage).
     /// Most developers should use `configure(apiKey:)` instead.
     public func configure(apiKey: String, options: Options) {
+        let configureStart = CFAbsoluteTimeGetCurrent()
+        print("⏱️ [AppVitalityKit] configure() STARTED")
+        
         guard !isConfigured else {
             print("⚠️ AppVitalityKit is already configured.")
             return
@@ -337,6 +340,7 @@ public class AppVitalityKit {
         debugLog("Auto-tuned: sampleRate=\(tunedOptions.eventSampleRate), flushInterval=\(tunedOptions.flushInterval)s")
 
         // Setup cloud uploader (this loads and sends pending crashes with their breadcrumbs)
+        var stepStart = CFAbsoluteTimeGetCurrent()
         let endpoint = tunedOptions.customEndpoint ?? Self.defaultEndpoint
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
@@ -346,6 +350,7 @@ public class AppVitalityKit {
             maxQueueSize: tunedOptions.maxQueueSize
         )
         self.uploader = AppVitalityUploader(config: uploaderConfig)
+        print("⏱️ [Timing] Uploader setup: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s")
         
         // Clear breadcrumbs AFTER uploader processes pending crashes
         // This ensures crash reports include breadcrumbs from the crashed session
@@ -358,61 +363,70 @@ public class AppVitalityKit {
         // 1. MetricKit
         if tunedOptions.features.contains(.metricKitReporting) {
             if #available(iOS 13.0, *) {
+                stepStart = CFAbsoluteTimeGetCurrent()
                 _ = MetricKitCollector.shared
-                print("   ✅ MetricKit Collector: Active")
+                print("   ✅ MetricKit Collector: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
             }
         }
 
         // 2. Network Monitoring
         if tunedOptions.features.contains(.networkMonitoring) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             URLProtocol.registerClass(AppVitalityNetworkMonitor.self)
             AppVitalityNetworkMonitor.configuration.blockRequestsInLowPowerMode = (tunedOptions.policy == .strict)
             AppVitalityNetworkMonitor.configuration.blockRequestsInBackground = false
             AppVitalityNetworkMonitor.configuration.verboseLogging = true
-            print("   ✅ Network Monitoring: Active")
+            print("   ✅ Network Monitoring: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 3. Watchdog (UI Hangs)
         if tunedOptions.features.contains(.mainThreadWatchdog) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             MainThreadWatchdog.shared.start()
-            print("   ✅ UI Watchdog: Active")
+            print("   ✅ UI Watchdog: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 4. Memory Monitor
         if tunedOptions.features.contains(.memoryMonitor) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             MemoryMonitor.shared.start()
-            print("   ✅ Memory Monitor: Active")
+            print("   ✅ Memory Monitor: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 5. Crash Reporter
         if tunedOptions.features.contains(.crashReporting) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             SimpleCrashReporter.start()
-            print("   ✅ Crash Reporter: Active")
+            print("   ✅ Crash Reporter: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 6. FPS Monitor
         if tunedOptions.features.contains(.fpsMonitor) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             FPSMonitor.shared.start()
-            print("   ✅ FPS Monitor: Active")
+            print("   ✅ FPS Monitor: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 7. CPU Monitor
         if tunedOptions.features.contains(.cpuMonitor) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             CPUMonitor.shared.start()
-            print("   ✅ CPU Monitor: Active")
+            print("   ✅ CPU Monitor: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 8. Auto Action Tracking
         if tunedOptions.features.contains(.autoActionTracking) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             UIViewController.enableLifecycleTracking()
             UIControl.enableActionTracking()
-            print("   ✅ Auto Tracker: Active")
+            print("   ✅ Auto Tracker: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
 
         // 9. Frustration Detection (Rage Taps & Dead Clicks)
         if tunedOptions.features.contains(.frustrationDetection) {
+            stepStart = CFAbsoluteTimeGetCurrent()
             _ = FrustrationDetector.shared // Initialize detector
-            print("   ✅ Frustration Detector: Active (Rage Taps, Dead Clicks)")
+            print("   ✅ Frustration Detector: Active (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - stepStart))s)")
         }
         
         // 10. Start Adaptive Sampling (Activity-Based)
@@ -423,6 +437,8 @@ public class AppVitalityKit {
         checkPreviousCrash()
         print("   ✅ Risk Score: Active (boosts sampling when problems detected)")
 
+        let totalTime = CFAbsoluteTimeGetCurrent() - configureStart
+        print("⏱️ [AppVitalityKit] configure() FINISHED - Total: \(String(format: "%.3f", totalTime))s")
         print("🚀 AppVitalityKit is ready. (\(tunedOptions.features.count) features enabled)")
     }
     
