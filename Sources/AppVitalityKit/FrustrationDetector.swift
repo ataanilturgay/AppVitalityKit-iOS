@@ -135,21 +135,70 @@ public final class FrustrationDetector {
         let normalizedX = Int((location.x / window.bounds.width) * 100)
         let normalizedY = Int((location.y / window.bounds.height) * 100)
         
-        // NOTE: nearestElement removed for performance - view traversal was blocking main thread
-        let event = AppVitalityEvent.ghostTouch(
-            x: normalizedX,
-            y: normalizedY,
-            screen: screen,
-            nearestElement: nil,
-            distanceToNearest: nil
-        )
+        // Find nearest element in background to avoid blocking main thread
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let nearest = self?.findNearestInteractiveElementAsync(from: location, in: window)
+            
+            DispatchQueue.main.async {
+                let event = AppVitalityEvent.ghostTouch(
+                    x: normalizedX,
+                    y: normalizedY,
+                    screen: screen,
+                    nearestElement: nearest?.identifier,
+                    distanceToNearest: nearest?.distance
+                )
+                
+                AppVitalityKit.shared.handle(event: event)
+                BreadcrumbLogger.shared.logAction("ghost_touch", target: "(\(normalizedX), \(normalizedY)) @ \(screen ?? "unknown")")
+                print("👻 [AppVitalityKit] Ghost Touch detected at (\(normalizedX), \(normalizedY)) on \(screen ?? "unknown")")
+            }
+        }
+    }
+    
+    /// Find nearest interactive element - runs on background thread
+    /// Limited to first 100 interactive views to prevent excessive traversal
+    private func findNearestInteractiveElementAsync(from point: CGPoint, in window: UIWindow) -> (identifier: String, distance: Int)? {
+        var interactiveViews: [(view: UIView, center: CGPoint)] = []
+        let maxViews = 100 // Limit to prevent performance issues
         
-        AppVitalityKit.shared.handle(event: event)
+        // Collect interactive views (limited)
+        collectInteractiveViews(in: window, into: &interactiveViews, limit: maxViews)
         
-        // Log to breadcrumbs
-        BreadcrumbLogger.shared.logAction("ghost_touch", target: "(\(normalizedX), \(normalizedY)) @ \(screen ?? "unknown")")
+        // Find nearest
+        var nearest: (identifier: String, distance: CGFloat)? = nil
         
-        print("👻 [AppVitalityKit] Ghost Touch detected at (\(normalizedX), \(normalizedY)) on \(screen ?? "unknown")")
+        for item in interactiveViews {
+            let dist = distance(point, item.center)
+            
+            if dist < 200 { // Only consider elements within 200pt
+                if nearest == nil || dist < nearest!.distance {
+                    let identifier = item.view.accessibilityIdentifier ??
+                                    item.view.accessibilityLabel ??
+                                    String(describing: type(of: item.view))
+                    nearest = (identifier, dist)
+                }
+            }
+        }
+        
+        return nearest.map { ($0.identifier, Int($0.distance)) }
+    }
+    
+    /// Collect interactive views with a limit to prevent excessive traversal
+    private func collectInteractiveViews(in view: UIView, into array: inout [(view: UIView, center: CGPoint)], limit: Int) {
+        guard array.count < limit else { return }
+        
+        if isInteractiveView(view) {
+            // Get center in window coordinates
+            if let window = view.window {
+                let center = view.superview?.convert(view.center, to: window) ?? view.center
+                array.append((view, center))
+            }
+        }
+        
+        for subview in view.subviews {
+            guard array.count < limit else { return }
+            collectInteractiveViews(in: subview, into: &array, limit: limit)
+        }
     }
     
     // MARK: - Dead Click Detection
