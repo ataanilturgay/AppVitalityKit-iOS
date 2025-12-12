@@ -1,128 +1,221 @@
 # AppVitalityKit (iOS)
 
-The official iOS SDK for [AppVitality](https://appvitality.io) - The intelligent analytics and performance monitoring platform.
+The official iOS SDK for [AppVitality](https://appvitality.io) - The intelligent analytics and UX monitoring platform.
+
+**Lightweight** | **Battery Efficient** | **Privacy-First**
 
 ## Features
 
-- 📊 **Auto Analytics** - Automatic tracking of screens, sessions, and interactions.
-- 💥 **Crash Reporting** - Catch crashes with breadcrumbs and stack traces.
-- ⚡ **Performance Monitoring** - FPS, CPU, Memory, and UI Hang detection.
-- 🚨 **User Risk Score** - Dynamically detects frustrated users and captures 100% of their data.
-- 🎯 **Critical Path Detection** - Ensure 100% data capture on business-critical screens.
-- 😤 **Frustration Detection** - Automatically detects **Rage Taps** and **Dead Clicks**.
-- 🧠 **Smart Sampling** - Activity-based and device-aware (Auto-Tuning) sampling.
-- 🔋 **Battery Friendly** - Automatically adjusts behavior based on battery and thermal state.
+| Feature | Description |
+|---------|-------------|
+| 📊 **Auto Analytics** | Screen views, sessions, button taps |
+| 💥 **Crash Reporting** | Stack traces, breadcrumbs, MetricKit integration |
+| ⚡ **Performance Monitoring** | FPS, CPU, Memory, Thermal State |
+| 🐌 **UI Hang Detection** | Main thread blocking detection |
+| 😤 **Rage Tap Detection** | Rapid tapping indicates frustration |
+| 🎯 **Dead Click Detection** | Taps on non-interactive elements |
+| 👻 **Ghost Touch Detection** | Taps on empty/non-UI areas |
+| 🧠 **Tap Pattern Learning** | Auto-learns expected interactive elements |
+| 🚨 **User Risk Score** | Dynamic frustration detection (0-100) |
+| 🎯 **Critical Screen Detection** | 100% capture on business-critical screens |
+| 📈 **Adaptive Sampling** | Device & battery-aware auto-tuning |
+| 🔋 **Battery Friendly** | Auto-adjusts based on battery/thermal state |
 
 ## Installation
 
 ### Swift Package Manager (Recommended)
 
-Add the package to your Xcode project:
-
 1. **File** → **Add Package Dependencies...**
-2. Enter the repository URL:
+2. Enter:
    ```
-   https://github.com/your-org/AppVitalityKit-iOS
+   https://github.com/appvitality/AppVitalityKit-iOS
    ```
-3. Select version `1.0.0` or higher.
+3. Select version `1.0.0` or higher
+
+### CocoaPods
+
+```ruby
+pod 'AppVitalityKit', '~> 1.0'
+```
 
 ## Quick Start
 
-### 1. Configure in AppDelegate
+### AppDelegate
 
 ```swift
 import AppVitalityKit
 
-func application(_ application: UIApplication, didFinishLaunchingWithOptions...) -> Bool {
+func application(_ application: UIApplication, 
+                 didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
     
-    // Initialize with your API key
     AppVitalityKit.shared.configure(apiKey: "your-api-key")
     
     return true
 }
 ```
 
-That's it! The SDK automatically starts tracking sessions, screens, and crashes.
+That's it! The SDK automatically tracks sessions, screens, crashes, and performance.
 
-## 🧠 Smart Features
+## UX Intelligence Features
 
-### 1. User Risk Score (New)
+### 😤 Frustration Detection
 
-The SDK assigns a dynamic **Risk Score** (0-100) to each user session based on frustration signals. 
+Automatic detection of UX friction patterns:
 
-- **High Risk (≥70):** The user is experiencing significant issues. The SDK **overrides sampling** and captures 100% of events.
-- **Signals:** Rage Taps (+15), Dead Clicks (+10), Errors (+20), UI Hangs (+10), Crashes (+20).
-
-No configuration required. It works automatically.
-
-### 2. Critical Path Detection
-
-Mark specific screens as **business-critical** (e.g., checkout, payment). Events on these screens are **always captured (100% sampling)** regardless of user activity or device state.
+| Signal | What It Detects | Risk Score Impact |
+|--------|-----------------|-------------------|
+| **Rage Tap** | 4+ rapid taps in same area within 2s | +15 |
+| **Dead Click** | Tap on non-interactive view that looks clickable | +10 |
+| **Ghost Touch** | Tap on completely empty area (window/root view) | +5 |
+| **UI Hang** | Main thread blocked (watchdog detection) | +10 |
+| **Crash** | App crash | +20 |
 
 ```swift
-// Mark critical screens where you can't afford to lose data
+// All detected automatically - no code needed!
+// Events sent: rage_tap, dead_click, ghost_touch, uiHang
+```
+
+### 🧠 Tap Pattern Learning
+
+The SDK learns from user behavior:
+
+- Tracks which views users repeatedly tap
+- After 5+ users tap the same non-interactive view, it's marked as "expected to be clickable"
+- Provides `isLearned` flag in dead click events
+
+### 🚨 User Risk Score
+
+Dynamic risk assessment per session:
+
+| Score | Level | Behavior |
+|-------|-------|----------|
+| 0-39 | Low | Normal sampling |
+| 40-69 | Medium | Increased capture |
+| 70-100 | High | **100% event capture** |
+
+### 🎯 Critical Screen Detection
+
+Ensure 100% data capture on important screens:
+
+```swift
 AppVitalityKit.shared.markCriticalScreens([
     "PaymentConfirmViewController",
     "CheckoutFinalViewController",
     "SubscriptionPurchaseVC"
 ])
+
+// Check if current screen is critical
+if AppVitalityKit.shared.isCriticalScreen("PaymentVC") {
+    // Full capture mode active
+}
 ```
 
-### 3. Frustration Detection
-
-The SDK automatically detects when users are frustrated:
-
-- **Rage Taps:** Rapidly tapping the same element (indicates slow UI or confusion).
-- **Dead Clicks:** Tapping on non-interactive elements that *look* clickable.
-
-These events are sent automatically and contribute to the User Risk Score.
-
-### 4. Adaptive Sampling (Auto-Tuning)
-
-The SDK automatically optimizes itself based on:
-
-- **User Activity:** High interaction rate (scrolling fast) → Lower sampling (to save CPU). Low activity → Higher sampling.
-- **Device Health:** 
-  - **Low Battery:** Reduces upload frequency.
-  - **Thermal State:** Disables heavy monitors (FPS/CPU) if device is hot.
-  - **Low Power Mode:** Reduces data collection.
-
-## Manual Event Logging
+## Manual Tracking
 
 ```swift
-// Custom event with parameters
+// Custom event
 AppVitalityKit.shared.log(event: "purchase_completed", parameters: [
     "product_id": "SKU_123",
     "price": 29.99,
     "currency": "USD"
 ])
+
+// With Encodable object
+struct Purchase: Encodable {
+    let productId: String
+    let price: Double
+}
+AppVitalityKit.shared.log(event: "purchase", object: Purchase(productId: "SKU", price: 9.99))
+
+// Breadcrumb
+BreadcrumbLogger.shared.log("User tapped checkout button")
 ```
 
-## Advanced Configuration
-
-For enterprise apps with massive traffic, you can customize the default behavior:
+## Configuration Options
 
 ```swift
 let options = AppVitalityKit.Options(
-    features: .recommended,
-    policy: .moderate,
-    flushInterval: 30,      // Upload every 30s
-    maxBatchSize: 50,       // Batch size
-    eventSampleRate: 0.1    // Sample 10% of standard events
+    features: .recommended,    // or .minimal, .all
+    policy: .moderate,         // .aggressive, .minimal
+    flushInterval: 30,         // Upload every 30s
+    maxBatchSize: 50,
+    eventSampleRate: 1.0       // 1.0 = 100%
 )
 
-AppVitalityKit.shared.configure(apiKey: "key", options: options)
+AppVitalityKit.shared.configure(
+    apiKey: "your-api-key",
+    options: options
+)
 ```
 
-**Note:** Critical Path and High Risk sessions will **bypass** the `eventSampleRate` limit automatically.
+### Feature Sets
+
+| Set | Included |
+|-----|----------|
+| `.minimal` | Session, Screen View, Crashes |
+| `.recommended` | + Button Taps, Breadcrumbs, Frustration |
+| `.all` | + FPS, CPU, Memory, Network Monitoring |
+
+### Sampling Policies
+
+| Policy | Description |
+|--------|-------------|
+| `.minimal` | Max battery savings, 10% sampling |
+| `.moderate` | Balanced (default) |
+| `.aggressive` | Full capture, more battery usage |
+
+> **Note:** Critical screens and high-risk sessions bypass sampling automatically.
+
+## Event Types Sent
+
+| Event Type | Description |
+|------------|-------------|
+| `session_start` | App foreground |
+| `session_end` | App background |
+| `screen_view` | ViewController appeared |
+| `button_tap` | UIControl tap |
+| `rage_tap` | Frustration: rapid taps |
+| `dead_click` | Frustration: tap on non-interactive |
+| `ghost_touch` | Frustration: tap on empty area |
+| `uiHang` | Main thread blocked |
+| `fpsDrop` | FPS dropped below threshold |
+| `highCPU` | CPU usage spike |
+| `highMemory` | Memory usage spike |
+| `thermalStateCritical` | Device overheating |
+
+## Performance Monitoring
+
+```swift
+// Automatically monitored (with .all features):
+// - FPS: Drops below 45 FPS are flagged
+// - CPU: Spikes above 80% are flagged
+// - Memory: Usage above warning threshold
+// - Thermal: Responds to thermal state changes
+// - UI Hangs: Main thread blocking > 250ms
+```
 
 ## Privacy
 
-AppVitalityKit respects user privacy:
-- No personal data collected by default.
-- Use `AppVitalityKit.shared.stop()` to disable tracking (e.g., for user opt-out).
-- Compatible with App Tracking Transparency (ATT).
+- **No IDFA** by default
+- **No Personal Data** collected automatically
+- **User Opt-out** supported:
+
+```swift
+// Disable tracking
+AppVitalityKit.shared.stop()
+
+// Re-enable
+AppVitalityKit.shared.start()
+```
+
+- Compatible with **App Tracking Transparency (ATT)**
+
+## Requirements
+
+- iOS 13.0+
+- Xcode 14.0+
+- Swift 5.7+
 
 ## License
 
-MIT License.
+MIT License
