@@ -18,6 +18,7 @@ public enum AppVitalityEvent {
     // Frustration Events (User Experience)
     case rageTap(tapCount: Int, timeWindowSeconds: Double, screen: String?)
     case deadClick(viewType: String, viewId: String?, screen: String?, elementText: String?, isLearned: Bool = false, containerContents: String? = nil, totalTaps: Int = 0)
+    case ghostTouch(x: Int, y: Int, screen: String?, nearestElement: String?, distanceToNearest: Int?)
     
     // Custom Events
     case custom(name: String, parameters: [String: AnyEncodable])
@@ -38,6 +39,7 @@ extension AppVitalityEvent {
         case .sessionEnd: return "session_end"
         case .rageTap: return "rage_tap"
         case .deadClick: return "dead_click"
+        case .ghostTouch: return "ghost_touch"
         case .custom(let name, _): return name
         }
     }
@@ -108,6 +110,21 @@ extension AppVitalityEvent {
             }
             if let contents = containerContents {
                 payload["container_contents"] = AnyEncodable(contents)
+            }
+            return payload
+        case let .ghostTouch(x, y, screen, nearestElement, distanceToNearest):
+            var payload: [String: AnyEncodable] = [
+                "x": AnyEncodable(x),
+                "y": AnyEncodable(y)
+            ]
+            if let scr = screen {
+                payload["screen"] = AnyEncodable(scr)
+            }
+            if let nearest = nearestElement {
+                payload["nearestElement"] = AnyEncodable(nearest)
+            }
+            if let distance = distanceToNearest {
+                payload["distanceToNearest"] = AnyEncodable(distance)
             }
             return payload
         case let .custom(_, parameters):

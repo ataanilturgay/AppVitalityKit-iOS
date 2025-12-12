@@ -26,6 +26,9 @@ public final class FrustrationDetector {
     private var lastRageTapReport: Date?
     private let rageTapCooldown: TimeInterval = 5.0 // Don't report same rage tap within 5 seconds
     
+    private var lastGhostTouchReport: Date?
+    private let ghostTouchCooldown: TimeInterval = 2.0 // Don't report ghost touch too frequently
+    
     private init() {
         setupGestureRecognizer()
     }
@@ -73,6 +76,9 @@ public final class FrustrationDetector {
         let screen = getCurrentScreen()
         let hitView = gesture.view?.hitTest(location, with: nil)
         
+        // Check for ghost touch (tap on empty area)
+        checkGhostTouch(at: location, hitView: hitView, screen: screen)
+        
         // Check for dead click (tap on non-interactive element)
         checkDeadClick(at: location, hitView: hitView, screen: screen)
         
@@ -81,6 +87,103 @@ public final class FrustrationDetector {
         
         // Check for rage tap pattern
         checkRageTap(at: location, screen: screen)
+    }
+    
+    // MARK: - Ghost Touch Detection
+    
+    private func checkGhostTouch(at location: CGPoint, hitView: UIView?, screen: String?) {
+        guard let window = getKeyWindow() else { return }
+        
+        // Ghost touch = tap directly on window or root view (empty area)
+        let isEmptyArea: Bool
+        
+        if hitView == nil || hitView == window {
+            isEmptyArea = true
+        } else if let view = hitView {
+            // Check if it's a large container (covers most of screen)
+            let screenBounds = window.bounds
+            let viewBounds = view.bounds
+            let viewArea = viewBounds.width * viewBounds.height
+            let screenArea = screenBounds.width * screenBounds.height
+            
+            // If view covers >80% of screen and has no meaningful content
+            if viewArea > screenArea * 0.8 && !isInteractiveView(view) && !looksClickable(view) {
+                isEmptyArea = true
+            } else {
+                isEmptyArea = false
+            }
+        } else {
+            isEmptyArea = false
+        }
+        
+        guard isEmptyArea else { return }
+        
+        // Check cooldown
+        if let lastReport = lastGhostTouchReport,
+           Date().timeIntervalSince(lastReport) < ghostTouchCooldown {
+            return
+        }
+        
+        lastGhostTouchReport = Date()
+        reportGhostTouch(at: location, screen: screen)
+    }
+    
+    private func reportGhostTouch(at location: CGPoint, screen: String?) {
+        guard let window = getKeyWindow() else { return }
+        
+        // Normalize coordinates to 0-100 scale
+        let normalizedX = Int((location.x / window.bounds.width) * 100)
+        let normalizedY = Int((location.y / window.bounds.height) * 100)
+        
+        // Find nearest interactive element
+        let nearest = findNearestInteractiveElement(from: location)
+        
+        let event = AppVitalityEvent.ghostTouch(
+            x: normalizedX,
+            y: normalizedY,
+            screen: screen,
+            nearestElement: nearest?.identifier,
+            distanceToNearest: nearest?.distance
+        )
+        
+        AppVitalityKit.shared.handle(event: event)
+        
+        // Log to breadcrumbs
+        BreadcrumbLogger.shared.logAction("ghost_touch", target: "(\(normalizedX), \(normalizedY)) @ \(screen ?? "unknown")")
+        
+        print("👻 [AppVitalityKit] Ghost Touch detected at (\(normalizedX), \(normalizedY)) on \(screen ?? "unknown")")
+    }
+    
+    private func findNearestInteractiveElement(from point: CGPoint) -> (identifier: String, distance: Int)? {
+        guard let window = getKeyWindow() else { return nil }
+        
+        var nearest: (identifier: String, distance: CGFloat)? = nil
+        
+        findInteractiveViews(in: window) { view in
+            let viewCenter = view.superview?.convert(view.center, to: window) ?? view.center
+            let dist = distance(point, viewCenter)
+            
+            if dist < 200 { // Only consider elements within 200pt
+                if nearest == nil || dist < nearest!.distance {
+                    let identifier = view.accessibilityIdentifier ?? 
+                                    view.accessibilityLabel ?? 
+                                    String(describing: type(of: view))
+                    nearest = (identifier, dist)
+                }
+            }
+        }
+        
+        return nearest.map { ($0.identifier, Int($0.distance)) }
+    }
+    
+    private func findInteractiveViews(in view: UIView, handler: (UIView) -> Void) {
+        if isInteractiveView(view) {
+            handler(view)
+        }
+        
+        for subview in view.subviews {
+            findInteractiveViews(in: subview, handler: handler)
+        }
     }
     
     // MARK: - Dead Click Detection
