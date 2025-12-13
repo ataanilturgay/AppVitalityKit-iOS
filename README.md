@@ -57,29 +57,25 @@ func application(_ application: UIApplication,
 
 That's it! The SDK automatically tracks sessions, screens, crashes, and performance.
 
-## Environment Configuration
-
-The SDK supports multiple environments:
+## Live & Sandbox Mode
 
 ```swift
-// Production (default)
+// Live (default) - production traffic
 AppVitalityKit.shared.configure(apiKey: "your-api-key")
 
-// Staging
-AppVitalityKit.shared.configure(apiKey: "your-api-key", environment: .staging)
+// Sandbox - QA & testing
+AppVitalityKit.shared.configure(apiKey: "your-api-key", sandbox: true)
 
-// Staging with verbose logging
-AppVitalityKit.shared.configure(
-    apiKey: "your-api-key",
-    environment: .staging,
-    verbose: true
-)
+// Sandbox + verbose logging
+AppVitalityKit.shared.configure(apiKey: "your-api-key", sandbox: true, verbose: true)
 ```
 
-| Environment | Endpoint |
-|-------------|----------|
-| `.production` (default) | `https://api.appvitality.io` |
-| `.staging` | `https://staging-api.appvitality.io` |
+| Mode | Description |
+|------|-------------|
+| `sandbox: false` | Events → **Live** (production) |
+| `sandbox: true` | Events → **Sandbox** (test environment) |
+
+> Use `sandbox: true` in debug builds to keep test data separate.
 
 ## UX Intelligence Features
 

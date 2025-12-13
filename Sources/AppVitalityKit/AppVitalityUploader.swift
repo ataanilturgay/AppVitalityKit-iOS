@@ -6,23 +6,18 @@ final class AppVitalityUploader {
     struct CloudConfig {
         let endpoint: URL
         let apiKey: String
-        let environment: AppVitalityKit.Environment  // live or staging (sandbox)
+        let dataEnv: String  // "live" or "sandbox"
         let flushInterval: TimeInterval
         let maxBatchSize: Int
         let maxQueueSize: Int
         
-        init(endpoint: URL, apiKey: String, environment: AppVitalityKit.Environment = .production, flushInterval: TimeInterval = 10, maxBatchSize: Int = 20, maxQueueSize: Int = 500) {
+        init(endpoint: URL, apiKey: String, dataEnv: String = "live", flushInterval: TimeInterval = 10, maxBatchSize: Int = 20, maxQueueSize: Int = 500) {
             self.endpoint = endpoint
             self.apiKey = apiKey
-            self.environment = environment
+            self.dataEnv = dataEnv
             self.flushInterval = flushInterval
             self.maxBatchSize = maxBatchSize
             self.maxQueueSize = maxQueueSize
-        }
-        
-        /// Returns the data environment string for API header
-        var dataEnv: String {
-            environment == .production ? "live" : "sandbox"
         }
     }
     

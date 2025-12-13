@@ -220,25 +220,13 @@ public class AppVitalityKit {
     
     // MARK: - Environment
     
-    /// SDK Environment - determines which backend to use
-    public enum Environment: String {
-        case production
-        case staging
-        
-        var endpoint: URL {
-            switch self {
-            case .production:
-                return URL(string: "https://api.appvitality.io")!
-            case .staging:
-                return URL(string: "https://staging-api.appvitality.io")!
-            }
-        }
-    }
+    /// API Endpoint
+    private static let apiEndpoint = URL(string: "https://api.appvitality.io")!
     
     // MARK: - Internal Types
     
     /// Default API endpoint (base URL, paths appended by uploader)
-    public static let defaultEndpoint = Environment.production.endpoint
+    public static let defaultEndpoint = URL(string: "https://api.appvitality.io")!
 
     private var isConfigured = false
     private var apiKey: String?
@@ -331,33 +319,44 @@ public class AppVitalityKit {
     /// // That's it! SDK auto-tunes everything.
     /// AppVitalityKit.shared.configure(apiKey: "your-api-key")
     /// ```
-    /// Initialize AppVitalityKit with your API key.
     ///
-    /// - Parameter apiKey: Your project API key from AppVitality Dashboard
-    /// - Parameter environment: `.production` (default) or `.staging`
-    /// - Parameter verbose: Enable detailed logging in console. Default: `false`
+    /// Initialize AppVitalityKit with minimal configuration.
+    ///
+    /// - Parameters:
+    ///   - apiKey: Your AppVitality API key
+    ///   - sandbox: If true, events go to sandbox. If false (default), events go to live.
+    ///   - verbose: Enable debug logging
+    ///
+    /// Example:
+    /// ```swift
+    /// // Production (default) - events go to LIVE
+    /// AppVitalityKit.shared.configure(apiKey: "your-key")
+    ///
+    /// // Testing - events go to SANDBOX
+    /// AppVitalityKit.shared.configure(apiKey: "your-key", sandbox: true)
+    /// ```
     public func configure(
         apiKey: String,
-        environment: Environment = .production,
+        sandbox: Bool = false,
         verbose: Bool = false
     ) {
         var options = Options.automatic
         options.enableDebugLogging = verbose
-        configureInternal(apiKey: apiKey, environment: environment, options: options)
+        configureInternal(apiKey: apiKey, sandbox: sandbox, options: options)
     }
     
     /// Initialize AppVitalityKit with advanced options.
-    /// Most developers should use `configure(apiKey:environment:debug:)` instead.
+    /// Most developers should use `configure(apiKey:sandbox:verbose:)` instead.
     public func configure(
         apiKey: String,
-        environment: Environment = .production,
+        sandbox: Bool = false,
         options: Options
     ) {
-        configureInternal(apiKey: apiKey, environment: environment, options: options)
+        configureInternal(apiKey: apiKey, sandbox: sandbox, options: options)
     }
     
     /// Internal configuration implementation
-    private func configureInternal(apiKey: String, environment: Environment, options: Options) {
+    private func configureInternal(apiKey: String, sandbox: Bool, options: Options) {
         guard !isConfigured else {
             print("⚠️ AppVitalityKit is already configured.")
             return
@@ -372,18 +371,19 @@ public class AppVitalityKit {
         self.options = tunedOptions
         self.isConfigured = true
         
-        debugLog("Configuring with endpoint: \(tunedOptions.customEndpoint?.absoluteString ?? Self.defaultEndpoint.absoluteString)")
+        let dataEnv = sandbox ? "sandbox" : "live"
+        debugLog("Configuring with endpoint: \(tunedOptions.customEndpoint?.absoluteString ?? Self.apiEndpoint.absoluteString)")
+        debugLog("Data environment: \(dataEnv)")
         let featureList = tunedOptions.features.map { "\($0)" }.joined(separator: ",")
         debugLog("Features: \(featureList)")
         debugLog("Auto-tuned: sampleRate=\(tunedOptions.eventSampleRate), flushInterval=\(tunedOptions.flushInterval)s")
 
-        // Setup cloud uploader (this loads and sends pending crashes with their breadcrumbs)
-        // Priority: customEndpoint > environment
-        let endpoint = tunedOptions.customEndpoint ?? environment.endpoint
+        // Setup cloud uploader
+        let endpoint = tunedOptions.customEndpoint ?? Self.apiEndpoint
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
             apiKey: apiKey,
-            environment: environment,
+            dataEnv: dataEnv,
             flushInterval: tunedOptions.flushInterval,
             maxBatchSize: tunedOptions.maxBatchSize,
             maxQueueSize: tunedOptions.maxQueueSize
@@ -1018,7 +1018,7 @@ extension AppVitalityKit {
             customEndpoint: cloud.endpoint == Self.defaultEndpoint ? nil : cloud.endpoint
         )
         
-        configure(apiKey: cloud.apiKey, environment: .production, options: options)
+        configure(apiKey: cloud.apiKey, sandbox: false, options: options)
     }
     
     @available(*, deprecated, renamed: "currentOptions")
