@@ -6,16 +6,23 @@ final class AppVitalityUploader {
     struct CloudConfig {
         let endpoint: URL
         let apiKey: String
+        let environment: AppVitalityKit.Environment  // live or staging (sandbox)
         let flushInterval: TimeInterval
         let maxBatchSize: Int
         let maxQueueSize: Int
         
-        init(endpoint: URL, apiKey: String, flushInterval: TimeInterval = 10, maxBatchSize: Int = 20, maxQueueSize: Int = 500) {
+        init(endpoint: URL, apiKey: String, environment: AppVitalityKit.Environment = .production, flushInterval: TimeInterval = 10, maxBatchSize: Int = 20, maxQueueSize: Int = 500) {
             self.endpoint = endpoint
             self.apiKey = apiKey
+            self.environment = environment
             self.flushInterval = flushInterval
             self.maxBatchSize = maxBatchSize
             self.maxQueueSize = maxQueueSize
+        }
+        
+        /// Returns the data environment string for API header
+        var dataEnv: String {
+            environment == .production ? "live" : "sandbox"
         }
     }
     
@@ -268,6 +275,7 @@ final class AppVitalityUploader {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(config.apiKey, forHTTPHeaderField: "x-appvitality-key")
+        request.setValue(config.dataEnv, forHTTPHeaderField: "x-appvitality-env")
 
         guard let body = try? encoder.encode(data) else { return }
         request.httpBody = body
@@ -286,6 +294,7 @@ final class AppVitalityUploader {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(config.apiKey, forHTTPHeaderField: "x-appvitality-key")
+        request.setValue(config.dataEnv, forHTTPHeaderField: "x-appvitality-env")
 
         guard let body = try? encoder.encode(data) else { return false }
         request.httpBody = body

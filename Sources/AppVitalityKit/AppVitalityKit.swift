@@ -383,6 +383,7 @@ public class AppVitalityKit {
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
             apiKey: apiKey,
+            environment: environment,
             flushInterval: tunedOptions.flushInterval,
             maxBatchSize: tunedOptions.maxBatchSize,
             maxQueueSize: tunedOptions.maxQueueSize
