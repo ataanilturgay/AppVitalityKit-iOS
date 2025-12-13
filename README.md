@@ -48,6 +48,7 @@ import AppVitalityKit
 func application(_ application: UIApplication, 
                  didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
     
+    // Production (default)
     AppVitalityKit.shared.configure(apiKey: "your-api-key")
     
     return true
@@ -55,6 +56,30 @@ func application(_ application: UIApplication,
 ```
 
 That's it! The SDK automatically tracks sessions, screens, crashes, and performance.
+
+## Environment Configuration
+
+The SDK supports multiple environments:
+
+```swift
+// Production (default)
+AppVitalityKit.shared.configure(apiKey: "your-api-key")
+
+// Staging
+AppVitalityKit.shared.configure(apiKey: "your-api-key", environment: .staging)
+
+// Staging with custom options
+AppVitalityKit.shared.configure(
+    apiKey: "your-api-key",
+    environment: .staging,
+    options: .init(enableDebugLogging: true)
+)
+```
+
+| Environment | Endpoint |
+|-------------|----------|
+| `.production` (default) | `https://api.appvitality.io` |
+| `.staging` | `https://staging-api.appvitality.io` |
 
 ## UX Intelligence Features
 
