@@ -236,7 +236,7 @@ public final class StressDetector {
                     AppVitalityKit.shared.handle(event: .stressLevelChange(
                         level: state.level.rawValue,
                         score: state.score,
-                        multiplier: state.samplingMultiplier
+                        samplingMultiplier: state.samplingMultiplier
                     ))
                 }
                 
@@ -319,17 +319,4 @@ public final class StressDetector {
     }
 }
 
-// MARK: - AppVitalityEvent Extension
-extension AppVitalityEvent {
-    static func stressLevelChange(level: String, score: Int, multiplier: Double) -> AppVitalityEvent {
-        return AppVitalityEvent(
-            type: "stress_level_change",
-            payload: [
-                "level": level,
-                "score": score,
-                "samplingMultiplier": multiplier
-            ]
-        )
-    }
-}
 

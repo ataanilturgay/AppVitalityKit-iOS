@@ -22,6 +22,7 @@ public class AppVitalityKit {
         case cpuMonitor           // Monitor CPU usage and thermal state
         case autoActionTracking   // Automatic UI Tracking (Taps, Screen Transitions)
         case frustrationDetection // Detect rage taps and dead clicks (UX issues)
+        case stressDetection      // Aggregate frustration signals into stress score
         
         /// All available features
         public static let all: Set<Feature> = [
@@ -33,7 +34,8 @@ public class AppVitalityKit {
             .fpsMonitor,
             .cpuMonitor,
             .autoActionTracking,
-            .frustrationDetection
+            .frustrationDetection,
+            .stressDetection
         ]
         
         /// Recommended features for most apps
@@ -42,7 +44,8 @@ public class AppVitalityKit {
             .cpuMonitor,
             .crashReporting,
             .autoActionTracking,
-            .frustrationDetection
+            .frustrationDetection,
+            .stressDetection
         ]
     }
 
@@ -404,10 +407,15 @@ public class AppVitalityKit {
             _ = FrustrationDetector.shared
         }
         
-        // 10. Start Adaptive Sampling (Activity-Based)
+        // 10. Stress Detection (aggregates frustration signals)
+        if tunedOptions.features.contains(.stressDetection) {
+            StressDetector.shared.start()
+        }
+        
+        // 11. Start Adaptive Sampling (Activity-Based)
         startActivityMonitor()
 
-        // 11. Check for previous crash (affects risk score)
+        // 12. Check for previous crash (affects risk score)
         checkPreviousCrash()
 
         print("🚀 AppVitalityKit is ready. (\(tunedOptions.features.count) features enabled)")

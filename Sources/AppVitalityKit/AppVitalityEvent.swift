@@ -20,6 +20,9 @@ public enum AppVitalityEvent {
     case deadClick(viewType: String, viewId: String?, screen: String?, elementText: String?, isLearned: Bool = false, containerContents: String? = nil, totalTaps: Int = 0)
     case ghostTouch(x: Int, y: Int, screen: String?, nearestElement: String?, distanceToNearest: Int?)
     
+    // Stress Detection Events
+    case stressLevelChange(level: String, score: Int, samplingMultiplier: Double)
+    
     // Custom Events
     case custom(name: String, parameters: [String: AnyEncodable])
 }
@@ -40,6 +43,7 @@ extension AppVitalityEvent {
         case .rageTap: return "rage_tap"
         case .deadClick: return "dead_click"
         case .ghostTouch: return "ghost_touch"
+        case .stressLevelChange: return "stress_level_change"
         case .custom(let name, _): return name
         }
     }
@@ -127,6 +131,12 @@ extension AppVitalityEvent {
                 payload["distanceToNearest"] = AnyEncodable(distance)
             }
             return payload
+        case let .stressLevelChange(level, score, samplingMultiplier):
+            return [
+                "level": AnyEncodable(level),
+                "score": AnyEncodable(score),
+                "samplingMultiplier": AnyEncodable(samplingMultiplier)
+            ]
         case let .custom(_, parameters):
             return parameters
         }
