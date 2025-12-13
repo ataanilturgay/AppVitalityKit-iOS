@@ -112,6 +112,20 @@ final class AppVitalityUploader {
                 mergedPayload[key] = value
             }
             
+            // Add device context to every event (lightweight, cached for 5 sec)
+            let stressState = StressDetector.shared.getCurrentState()
+            let deviceContext = DeviceContext.capture(
+                sessionRageTaps: stressState.rageTapCount,
+                sessionDeadClicks: stressState.deadClickCount,
+                currentFPS: -1 // FPS requires CADisplayLink, not available here
+            )
+            for (key, value) in deviceContext.toDictionary() {
+                mergedPayload[key] = value
+            }
+            // Also add stress level
+            mergedPayload["stress_level"] = AnyEncodable(stressState.level.rawValue)
+            mergedPayload["stress_score"] = AnyEncodable(stressState.score)
+            
             let payload = EventPayload(
                 eventType: event.type,
                 observedAt: Date(),
