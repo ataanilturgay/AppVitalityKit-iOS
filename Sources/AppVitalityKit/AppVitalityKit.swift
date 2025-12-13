@@ -115,8 +115,14 @@ public class AppVitalityKit {
         /// Default: `20`
         public var maxBatchSize: Int
         
+        /// Environment to use (production or staging).
+        /// Automatically sets the correct API endpoint.
+        /// Default: `.production`
+        public var environment: Environment
+        
         /// Custom API endpoint URL.
-        /// Leave `nil` to use AppVitality cloud (https://api.appvitality.io).
+        /// Overrides environment setting if provided.
+        /// Leave `nil` to use environment-based endpoint.
         /// Only set this for on-premise deployments.
         public var customEndpoint: URL?
 
@@ -159,6 +165,7 @@ public class AppVitalityKit {
             policy: PowerPolicy = .moderate,
             flushInterval: TimeInterval = 10,
             maxBatchSize: Int = 20,
+            environment: Environment = .production,
             customEndpoint: URL? = nil,
             enableDebugLogging: Bool = false,
             eventSampleRate: Double = 0.1,
@@ -168,6 +175,7 @@ public class AppVitalityKit {
             self.policy = policy
             self.flushInterval = flushInterval
             self.maxBatchSize = maxBatchSize
+            self.environment = environment
             self.customEndpoint = customEndpoint
             self.enableDebugLogging = enableDebugLogging
             self.eventSampleRate = max(0.0, min(1.0, eventSampleRate))
@@ -217,10 +225,27 @@ public class AppVitalityKit {
         }
     }
     
+    // MARK: - Environment
+    
+    /// SDK Environment - determines which backend to use
+    public enum Environment: String {
+        case production
+        case staging
+        
+        var endpoint: URL {
+            switch self {
+            case .production:
+                return URL(string: "https://api.appvitality.io")!
+            case .staging:
+                return URL(string: "https://staging-api.appvitality.io")!
+            }
+        }
+    }
+    
     // MARK: - Internal Types
     
     /// Default API endpoint (base URL, paths appended by uploader)
-    public static let defaultEndpoint = URL(string: "https://api.appvitality.io")!
+    public static let defaultEndpoint = Environment.production.endpoint
 
     private var isConfigured = false
     private var apiKey: String?
@@ -315,12 +340,15 @@ public class AppVitalityKit {
     /// ```
     ///
     /// - Parameter apiKey: Your project API key from AppVitality Dashboard
-    public func configure(apiKey: String) {
-        configure(apiKey: apiKey, options: .automatic)
+    /// - Parameter environment: `.production` (default) or `.staging`
+    public func configure(apiKey: String, environment: Environment = .production) {
+        var options = Options.automatic
+        options.environment = environment
+        configure(apiKey: apiKey, options: options)
     }
     
     /// Initialize AppVitalityKit with custom options (advanced usage).
-    /// Most developers should use `configure(apiKey:)` instead.
+    /// Most developers should use `configure(apiKey:environment:)` instead.
     public func configure(apiKey: String, options: Options) {
         guard !isConfigured else {
             print("⚠️ AppVitalityKit is already configured.")
@@ -342,7 +370,8 @@ public class AppVitalityKit {
         debugLog("Auto-tuned: sampleRate=\(tunedOptions.eventSampleRate), flushInterval=\(tunedOptions.flushInterval)s")
 
         // Setup cloud uploader (this loads and sends pending crashes with their breadcrumbs)
-        let endpoint = tunedOptions.customEndpoint ?? Self.defaultEndpoint
+        // Priority: customEndpoint > environment > default
+        let endpoint = tunedOptions.customEndpoint ?? tunedOptions.environment.endpoint
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
             apiKey: apiKey,
