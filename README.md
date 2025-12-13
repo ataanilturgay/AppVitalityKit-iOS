@@ -68,11 +68,11 @@ AppVitalityKit.shared.configure(apiKey: "your-api-key")
 // Staging
 AppVitalityKit.shared.configure(apiKey: "your-api-key", environment: .staging)
 
-// Staging with custom options
+// Staging with verbose logging
 AppVitalityKit.shared.configure(
     apiKey: "your-api-key",
     environment: .staging,
-    options: .init(enableDebugLogging: true)
+    verbose: true
 )
 ```
 

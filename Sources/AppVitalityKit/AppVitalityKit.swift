@@ -335,11 +335,23 @@ public class AppVitalityKit {
     ///
     /// - Parameter apiKey: Your project API key from AppVitality Dashboard
     /// - Parameter environment: `.production` (default) or `.staging`
-    /// - Parameter options: Advanced options. Most developers don't need this.
+    /// - Parameter verbose: Enable detailed logging in console. Default: `false`
     public func configure(
         apiKey: String,
         environment: Environment = .production,
-        options: Options = .automatic
+        verbose: Bool = false
+    ) {
+        var options = Options.automatic
+        options.enableDebugLogging = verbose
+        configureInternal(apiKey: apiKey, environment: environment, options: options)
+    }
+    
+    /// Initialize AppVitalityKit with advanced options.
+    /// Most developers should use `configure(apiKey:environment:debug:)` instead.
+    public func configure(
+        apiKey: String,
+        environment: Environment = .production,
+        options: Options
     ) {
         configureInternal(apiKey: apiKey, environment: environment, options: options)
     }

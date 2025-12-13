@@ -25,11 +25,11 @@ AppVitalityKit.shared.configure(
     environment: .staging  // ✅ environment is now a separate parameter
 )
 
-// With custom options
+// With verbose logging
 AppVitalityKit.shared.configure(
     apiKey: "xxx",
     environment: .staging,
-    options: .init(enableDebugLogging: true)
+    verbose: true  // ✅ simplified API
 )
 
 // Production (default) - no change needed
