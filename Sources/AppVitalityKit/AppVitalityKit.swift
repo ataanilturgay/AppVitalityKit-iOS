@@ -115,11 +115,6 @@ public class AppVitalityKit {
         /// Default: `20`
         public var maxBatchSize: Int
         
-        /// Environment to use (production or staging).
-        /// Automatically sets the correct API endpoint.
-        /// Default: `.production`
-        public var environment: Environment
-        
         /// Custom API endpoint URL.
         /// Overrides environment setting if provided.
         /// Leave `nil` to use environment-based endpoint.
@@ -165,7 +160,6 @@ public class AppVitalityKit {
             policy: PowerPolicy = .moderate,
             flushInterval: TimeInterval = 10,
             maxBatchSize: Int = 20,
-            environment: Environment = .production,
             customEndpoint: URL? = nil,
             enableDebugLogging: Bool = false,
             eventSampleRate: Double = 0.1,
@@ -175,7 +169,6 @@ public class AppVitalityKit {
             self.policy = policy
             self.flushInterval = flushInterval
             self.maxBatchSize = maxBatchSize
-            self.environment = environment
             self.customEndpoint = customEndpoint
             self.enableDebugLogging = enableDebugLogging
             self.eventSampleRate = max(0.0, min(1.0, eventSampleRate))
@@ -338,18 +331,21 @@ public class AppVitalityKit {
     /// // That's it! SDK auto-tunes everything.
     /// AppVitalityKit.shared.configure(apiKey: "your-api-key")
     /// ```
+    /// Initialize AppVitalityKit with your API key.
     ///
     /// - Parameter apiKey: Your project API key from AppVitality Dashboard
     /// - Parameter environment: `.production` (default) or `.staging`
-    public func configure(apiKey: String, environment: Environment = .production) {
-        var options = Options.automatic
-        options.environment = environment
-        configure(apiKey: apiKey, options: options)
+    /// - Parameter options: Advanced options. Most developers don't need this.
+    public func configure(
+        apiKey: String,
+        environment: Environment = .production,
+        options: Options = .automatic
+    ) {
+        configureInternal(apiKey: apiKey, environment: environment, options: options)
     }
     
-    /// Initialize AppVitalityKit with custom options (advanced usage).
-    /// Most developers should use `configure(apiKey:environment:)` instead.
-    public func configure(apiKey: String, options: Options) {
+    /// Internal configuration implementation
+    private func configureInternal(apiKey: String, environment: Environment, options: Options) {
         guard !isConfigured else {
             print("⚠️ AppVitalityKit is already configured.")
             return
@@ -370,8 +366,8 @@ public class AppVitalityKit {
         debugLog("Auto-tuned: sampleRate=\(tunedOptions.eventSampleRate), flushInterval=\(tunedOptions.flushInterval)s")
 
         // Setup cloud uploader (this loads and sends pending crashes with their breadcrumbs)
-        // Priority: customEndpoint > environment > default
-        let endpoint = tunedOptions.customEndpoint ?? tunedOptions.environment.endpoint
+        // Priority: customEndpoint > environment
+        let endpoint = tunedOptions.customEndpoint ?? environment.endpoint
         let uploaderConfig = AppVitalityUploader.CloudConfig(
             endpoint: endpoint,
             apiKey: apiKey,
@@ -1009,7 +1005,7 @@ extension AppVitalityKit {
             customEndpoint: cloud.endpoint == Self.defaultEndpoint ? nil : cloud.endpoint
         )
         
-        configure(apiKey: cloud.apiKey, options: options)
+        configure(apiKey: cloud.apiKey, environment: .production, options: options)
     }
     
     @available(*, deprecated, renamed: "currentOptions")
