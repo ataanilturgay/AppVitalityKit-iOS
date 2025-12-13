@@ -45,7 +45,9 @@ public class AppVitalityKit {
             .crashReporting,
             .autoActionTracking,
             .frustrationDetection,
-            .stressDetection
+            .stressDetection,
+            .mainThreadWatchdog,  // UI Hang detection
+            .memoryMonitor        // Memory warnings
         ]
     }
 
